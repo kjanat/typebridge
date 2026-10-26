@@ -1,14 +1,14 @@
-import { Effect, Exit, Fiber, FiberSet, Scope } from 'effect';
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { BridgeRequest, BridgeResponse, Compiler, TscBridge } from '@kjanat/tsc-protocol';
 import { compilerFor, encodeRequest, promiseClientFor, readResponse } from '@kjanat/tsc-protocol';
+import { Effect, Exit, Fiber, FiberSet, Scope } from 'effect';
 import { createHost } from '#host';
 import initBridge from '../bin/tsc-bridge.wasm?init';
 
 export type {
-	Compiler,
 	CodeUnion,
+	Compiler,
 	Diagnostic,
 	ProjectOverrides,
 	TranspileResult,

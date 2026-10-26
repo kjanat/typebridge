@@ -1,5 +1,7 @@
 # @kjanat/tsc-compat
 
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-compat?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-compat)
+
 A synchronous TypeScript parser and configuration API backed by the TypeScript Go
 compiler in WebAssembly. Use it for tooling that needs TypeScript-style syntax
 trees and tsconfig handling, including Vue's language-core integration.

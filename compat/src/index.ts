@@ -1,6 +1,8 @@
 import type { Diagnostic, ParsedCommandLine } from '#schema';
 import { decodeDiagnostics, decodeParsedCommandLine } from '#schema';
+
 export type { Diagnostic, ParsedCommandLine } from '#schema';
+
 import path from 'node:path';
 import type { Node, NodeArray, SourceFile as SyntaxTree } from 'typescript/ast';
 import { ScriptKind, ScriptTarget, SyntaxKind } from 'typescript/ast';

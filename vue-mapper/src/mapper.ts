@@ -1,7 +1,13 @@
-import { Effect } from 'effect';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import * as ts from '@kjanat/tsc-compat';
+import type {
+	MapperResult,
+	MapperSegment,
+	MapperSourceSpan,
+	MapperTransformParams,
+	MapperVerifyParams,
+} from '@kjanat/tsc-protocol';
 import type { CodeMapping, LanguagePlugin, VueVirtualCode } from '@vue/language-core';
 import {
 	createParsedCommandLine,
@@ -10,14 +16,8 @@ import {
 	SourceMap,
 	shouldReportDiagnostics,
 } from '@vue/language-core';
+import { Effect } from 'effect';
 import type { Handler } from '#rpc';
-import type {
-	MapperTransformParams,
-	MapperVerifyParams,
-	MapperSegment,
-	MapperSourceSpan,
-	MapperResult,
-} from '@kjanat/tsc-protocol';
 
 type VuePlugin = LanguagePlugin<string, VueVirtualCode>;
 

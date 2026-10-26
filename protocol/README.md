@@ -1,5 +1,7 @@
 # @kjanat/tsc-protocol
 
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-protocol?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-protocol)
+
 Typed compiler and content-mapper contracts for Typebridge. Effect Schema codecs
 define the messages; TypeScript types are inferred from those schemas. Use this
 package to implement a transport, integrate a mapper, or decode bridge messages.

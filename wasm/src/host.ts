@@ -1,10 +1,10 @@
-import { Schema } from 'effect';
-import type { MapperConnection as Connection, MapperModule } from '@kjanat/tsc-protocol';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { MapperConnection as Connection, MapperModule } from '@kjanat/tsc-protocol';
+import { Schema } from 'effect';
 
 interface HostProcess {
 	write(chunk: Uint8Array): void;

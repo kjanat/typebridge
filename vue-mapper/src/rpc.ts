@@ -1,11 +1,12 @@
-import { Effect } from 'effect';
-import { decodeMapperMessage, encodeMapperResponse } from '@kjanat/tsc-protocol';
 import type {
 	MapperConnection,
 	MapperRequest,
 	MapperResponse,
 	MapperResult,
 } from '@kjanat/tsc-protocol';
+import { decodeMapperMessage, encodeMapperResponse } from '@kjanat/tsc-protocol';
+import { Effect } from 'effect';
+
 export type { MapperConnection as Connection } from '@kjanat/tsc-protocol';
 export type Handler = (request: MapperRequest) => Effect.Effect<MapperResult, Error>;
 

@@ -1,5 +1,7 @@
 # @kjanat/tsc-wasm
 
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-wasm?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-wasm)
+
 Run the TypeScript Go compiler as WebAssembly inside Node.js or Bun. Transpile
 source, check projects and extract error-code unions through an in-process
 compiler with Promise and Effect APIs.

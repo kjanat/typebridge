@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { Deferred, Effect, Fiber } from 'effect';
+import { fileURLToPath } from 'node:url';
 import { makeTscBridge } from '@kjanat/tsc-bridge';
 import type { Compiler } from '@kjanat/tsc-protocol';
 import { decodeMapperMessage, decodeResponse } from '@kjanat/tsc-protocol';
 import { makeWasmBridge } from '@kjanat/tsc-wasm';
-import { fileURLToPath } from 'node:url';
+import { Deferred, Effect, Fiber } from 'effect';
 
 async function assertClosed(compiler: Compiler): Promise<void> {
 	const result = await Effect.runPromise(compiler.transpile('export const value = 1;')).catch(

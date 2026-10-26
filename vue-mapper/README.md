@@ -1,5 +1,7 @@
 # @kjanat/tsc-vue-mapper
 
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-vue-mapper?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-vue-mapper)
+
 Type-check Vue single-file components with the TypeScript Go compiler. The mapper
 uses Vue language-core to generate TypeScript and Volar's source maps and
 verification rules to report diagnostics against your `.vue` source.

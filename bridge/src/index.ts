@@ -1,4 +1,3 @@
-import { Deferred, Effect, Exit, Scope } from 'effect';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -7,8 +6,8 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import type {
 	BridgeRequest,
-	Compiler,
 	BridgeResponse,
+	Compiler,
 	Diagnostic,
 	ProjectOverrides,
 	TranspileResult,
@@ -21,10 +20,11 @@ import {
 	promiseClientFor,
 	readResponse,
 } from '@kjanat/tsc-protocol';
+import { Deferred, Effect, Exit, Scope } from 'effect';
 
 export type {
-	Compiler,
 	CodeUnion,
+	Compiler,
 	Diagnostic,
 	ProjectOverrides,
 	TranspileResult,

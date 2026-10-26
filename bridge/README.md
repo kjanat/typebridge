@@ -1,5 +1,7 @@
 # @kjanat/tsc-bridge
 
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-bridge?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-bridge)
+
 Run the TypeScript Go compiler from Node.js or Bun. Transpile source, check a
 project, and extract exported string-literal error codes through a persistent
 native compiler process.

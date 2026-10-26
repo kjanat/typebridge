@@ -1,0 +1,65 @@
+name: Package
+on:
+  workflow_call:
+    inputs:
+      package: { type: string, required: true }
+      dependencies: { type: string, default: "" }
+    outputs:
+      artifact-id:
+        description: Built and tested package archive
+        value: ${{ jobs.package.outputs.artifact-id }}
+permissions: { contents: read }
+defaults: { run: { shell: "bash -euo pipefail {0}" } }
+jobs:
+  package:
+    name: ${{ inputs.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs: { artifact-id: "${{ steps.upload.outputs.artifact-id }}" }
+    env: { PACKAGE: "${{ inputs.package }}" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version: latest }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .node-version, package-manager-cache: false }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.work, cache-dependency-path: "*/go.sum" }
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Download dependency archives
+        if: inputs.dependencies != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.dependencies }}
+          merge-multiple: true
+          path: .cache/dependencies
+      - name: Install built dependencies into their workspaces
+        if: inputs.dependencies != ''
+        working-directory: .cache/dependencies
+        run: |
+          sha256sum -c ./*.sha256
+          for archive in ./*.tgz; do
+            workspace=$(basename "${archive}" .tgz)
+            tar -xzf "${archive}" --strip-components=1 -C "../../${workspace}"
+          done
+      - name: Build compiler artifact
+        if: contains(fromJSON('["bridge","compat","wasm"]'), inputs.package)
+        run: bun run build
+        working-directory: ${{ env.PACKAGE }}
+      - name: Bundle package and declarations
+        run: bunx --no-install tsdown -F "@kjanat/tsc-${PACKAGE}"
+      - run: bun run typecheck
+        working-directory: ${{ env.PACKAGE }}
+      - run: bun run test
+        working-directory: ${{ env.PACKAGE }}
+      - name: Pack tested package
+        env: { RELEASE_TAG: "${{ case(github.ref_type == 'tag', github.ref_name, '') }}" }
+        run: bun .github/release/pack.ts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        with:
+          name: package-${{ inputs.package }}
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
