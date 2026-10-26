@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"target": "ES2024",
+		"module": "NodeNext",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"types": ["node", "@volar/typescript", "rolldown-plugin-wasm/types"],
+		"paths": {
+			"typescript": ["../compat/src/index.ts"]
+		}
+	},
+	"include": ["./**/*.ts"],
+	"exclude": ["./test/fixture"]
+}

@@ -1,0 +1,43 @@
+{
+	"name": "@kjanat/tsc-protocol",
+	"version": "0.0.0",
+	"description": "Wire contract and request handling shared by the native and WebAssembly TypeScript compiler bridges.",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kjanat/typebridge.git",
+		"directory": "protocol"
+	},
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"default": "./dist/index.mjs"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": ["/dist/"],
+	"scripts": {
+		"test": "go test -race -count=1 ./...",
+		"typecheck": "run typescript --noEmit -p tsconfig.json"
+	},
+	"devDependencies": {
+		"tsdown": "catalog:build"
+	},
+	"engines": {
+		"bun": ">=1.4.2",
+		"node": ">=24"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		},
+		"runtime": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		}
+	}
+}

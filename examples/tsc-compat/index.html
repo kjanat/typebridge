@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>tsc-compat AST explorer</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				--bg: #fbfbfa;
+				--fg: #1f2328;
+				--muted: #6b7280;
+				--line: #d9dce1;
+				--accent: #3178c6;
+				--error: #c62828;
+				--pick: #3178c62e;
+				font:
+					14px / 1.5 system-ui,
+					sans-serif;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #16181d;
+					--fg: #e6e8eb;
+					--muted: #9aa1ab;
+					--line: #2d3139;
+					--accent: #6aa7ff;
+					--error: #ff7b72;
+					--pick: #6aa7ff33;
+				}
+			}
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--fg);
+				display: grid;
+				grid-template-rows: auto 1fr;
+				height: 100vh;
+			}
+			header {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 0.75rem 1.5rem;
+				align-items: baseline;
+				padding: 0.75rem 1rem;
+				border-bottom: 1px solid var(--line);
+			}
+			h1 {
+				font-size: 1rem;
+				margin: 0;
+			}
+			#status {
+				color: var(--muted);
+			}
+			main {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				min-height: 0;
+			}
+			@media (max-width: 720px) {
+				main {
+					grid-template-columns: 1fr;
+					grid-template-rows: 1fr 1fr;
+				}
+			}
+			section {
+				display: flex;
+				flex-direction: column;
+				min-height: 0;
+				border-right: 1px solid var(--line);
+			}
+			textarea {
+				flex: 1;
+				resize: none;
+				border: 0;
+				padding: 1rem;
+				background: transparent;
+				color: inherit;
+				font:
+					13px / 1.6 ui-monospace,
+					SFMono-Regular,
+					Menlo,
+					monospace;
+				tab-size: 2;
+				outline: none;
+			}
+			#diagnostics {
+				margin: 0;
+				padding: 0.5rem 1rem;
+				list-style: none;
+				border-top: 1px solid var(--line);
+				max-height: 30%;
+				overflow: auto;
+			}
+			#diagnostics:empty::before {
+				content: 'No parse errors.';
+				color: var(--muted);
+			}
+			#tree {
+				overflow: auto;
+				padding: 0.75rem 1rem;
+				font:
+					13px / 1.6 ui-monospace,
+					SFMono-Regular,
+					Menlo,
+					monospace;
+			}
+			details {
+				padding-left: 1rem;
+			}
+			details > summary {
+				margin-left: -1rem;
+				cursor: pointer;
+			}
+			.leaf {
+				padding-left: 1rem;
+			}
+			button {
+				all: unset;
+				cursor: pointer;
+				border-radius: 3px;
+				padding: 0 0.25rem;
+			}
+			button:hover,
+			button.picked {
+				background: var(--pick);
+			}
+			#diagnostics button {
+				color: var(--error);
+			}
+			.kind {
+				color: var(--accent);
+			}
+			.range,
+			.snippet {
+				color: var(--muted);
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>tsc-compat AST explorer</h1>
+			<label>
+				File
+				<select id="file">
+					<option value="ts">example.ts</option>
+					<option value="tsx">example.tsx</option>
+				</select>
+			</label>
+			<span id="status">Parsing…</span>
+		</header>
+		<main>
+			<section>
+				<textarea id="source" spellcheck="false">interface User {
+  name: string;
+  roles: readonly string[];
+}
+
+export function greet(user: User): string {
+  return `Hello, ${user.name}`;
+}
+
+const admins = users.filter((user) =&gt; user.roles.includes('admin'));
+let broken = ;
+</textarea>
+				<ul id="diagnostics"></ul>
+			</section>
+			<div id="tree"></div>
+		</main>
+		<script type="module">
+			const source = document.querySelector('#source');
+			const file = document.querySelector('#file');
+			const status = document.querySelector('#status');
+			const tree = document.querySelector('#tree');
+			const diagnostics = document.querySelector('#diagnostics');
+			let picked;
+			let pending = 0;
+
+			function select(button, start, end) {
+				picked?.classList.remove('picked');
+				picked = button;
+				button.classList.add('picked');
+				source.focus();
+				source.setSelectionRange(start, end);
+			}
+
+			function label(node) {
+				const button = document.createElement('button');
+				const kind = document.createElement('span');
+				kind.className = 'kind';
+				kind.textContent = node.kind;
+				const range = document.createElement('span');
+				range.className = 'range';
+				range.textContent = ` [${node.start}, ${node.end})`;
+				const snippet = document.createElement('span');
+				snippet.className = 'snippet';
+				const text = source.value.slice(node.start, node.end).split('\n')[0];
+				snippet.textContent = text ? `  ${text.slice(0, 40)}${text.length > 40 ? '…' : ''}` : '';
+				button.append(kind, range, snippet);
+				button.addEventListener('click', (event) => {
+					event.preventDefault();
+					select(button, node.start, node.end);
+				});
+				return button;
+			}
+
+			function render(node, depth) {
+				if (node.children.length === 0) {
+					const leaf = document.createElement('div');
+					leaf.className = 'leaf';
+					leaf.append(label(node));
+					return leaf;
+				}
+				const details = document.createElement('details');
+				details.open = depth < 3;
+				const summary = document.createElement('summary');
+				summary.append(label(node));
+				details.append(summary, ...node.children.map((child) => render(child, depth + 1)));
+				return details;
+			}
+
+			async function update() {
+				const request = ++pending;
+				const response = await fetch(`/parse?file=${file.value}`, {
+					method: 'POST',
+					body: source.value,
+				});
+				const result = await response.json();
+				if (request !== pending) return;
+				picked = undefined;
+				tree.replaceChildren(render(result.tree, 0));
+				diagnostics.replaceChildren(
+					...result.diagnostics.map((diagnostic) => {
+						const item = document.createElement('li');
+						const button = document.createElement('button');
+						button.textContent = `TS${diagnostic.code} at ${diagnostic.start}: ${diagnostic.message}`;
+						button.addEventListener('click', () =>
+							select(button, diagnostic.start, diagnostic.start + diagnostic.length),
+						);
+						item.append(button);
+						return item;
+					}),
+				);
+				status.textContent = `Parsed in ${result.milliseconds.toFixed(1)} ms by the TypeScript Go compiler's parser, running as WebAssembly.`;
+			}
+
+			let timer;
+			source.addEventListener('input', () => {
+				clearTimeout(timer);
+				timer = setTimeout(update, 120);
+			});
+			file.addEventListener('change', update);
+			update();
+		</script>
+	</body>
+</html>

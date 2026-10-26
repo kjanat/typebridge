@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"target": "ES2024",
+		"module": "NodeNext",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"types": ["node", "bun"]
+	},
+	"include": ["*.ts", "*.mjs"],
+	"exclude": ["node_modules", "dist"]
+}

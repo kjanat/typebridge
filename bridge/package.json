@@ -1,0 +1,55 @@
+{
+	"name": "@kjanat/tsc-bridge",
+	"version": "0.0.0",
+	"description": "Experimental JS access to the native TypeScript compiler.",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kjanat/typebridge.git",
+		"directory": "bridge"
+	},
+	"license": "MIT",
+	"type": "module",
+	"imports": {
+		"#bridge": "./src/index.ts"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"default": "./dist/index.mjs"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": ["/bin/tsc-bridge", "/dist/"],
+	"scripts": {
+		"build": "go build -p 2 -trimpath -o bin/tsc-bridge .",
+		"fetch": "bun fetch.ts",
+		"test": "run -s test:go test:js",
+		"test:go": "go vet ./...",
+		"test:js": "bun test",
+		"typecheck": "run typescript --noEmit -p tsconfig.json"
+	},
+	"dependencies": {
+		"@kjanat/tsc-protocol": "workspace:*"
+	},
+	"devDependencies": {
+		"@kjanat/dreamcli": "catalog:",
+		"runner-run": "catalog:",
+		"tsdown": "catalog:build"
+	},
+	"engines": {
+		"bun": ">=1.4.2",
+		"node": ">=24"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		},
+		"runtime": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		}
+	}
+}

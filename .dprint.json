@@ -1,0 +1,116 @@
+{
+	"incremental": true,
+	"useTabs": true,
+	"indentWidth": 2,
+	"lineWidth": 100,
+	"newLineKind": "lf",
+	"typescript": {
+		"quoteStyle": "alwaysSingle",
+		"associations": ["!**/*.*{ts,js}"],
+		"lineWidth": 100,
+		"useTabs": true,
+		"module.sortImportDeclarations": "maintain",
+		"module.sortExportDeclarations": "maintain",
+		"exportDeclaration.sortNamedExports": "maintain",
+		"exportDeclaration.sortTypeOnlyExports": "none",
+		"importDeclaration.sortNamedImports": "maintain",
+		"importDeclaration.sortTypeOnlyImports": "none"
+	},
+	"json": {
+		"jsonTrailingCommaFiles": [
+			"!biome.jsonc",
+			"**/.vscode/*.json",
+			"**/.zed/*.json",
+			"**/tsconfig*.json"
+		],
+		"associations": [".stackblitzrc"]
+	},
+	"shfmt": {
+		"useTabs": true,
+		"binaryNextLine": true,
+		"switchCaseIndent": true
+	},
+	"markdown": {
+		"textWrap": "maintain",
+		"lineWidth": 80,
+		"codeBlock.useTabs": false,
+		"codeBlock.preserveIndentation": false,
+		"html.useTabs": false
+	},
+	"markup": {
+		"printWidth": 120,
+		"html.void.selfClosing": false,
+		"formatComments": true,
+		"scriptIndent": true,
+		"styleIndent": true,
+		"doctypeKeywordCase": "upper",
+		"strictSvelteAttr": false,
+		"svelteAttrShorthand": true,
+		"svelteDirectiveShorthand": true,
+		"ignoreCommentDirective": "dprint-ignore",
+		"ignoreFileCommentDirective": "dprint-ignore-file",
+		"scriptFormatter": "biome",
+		"associations": ["!**/*.svg", "!**/*.vue"]
+	},
+	"yaml": {
+		"printWidth": 160
+	},
+	"biome": {
+		"lineEnding": "lf",
+		"indentWidth": 2,
+		"indentStyle": "tab",
+		"lineWidth": 100,
+		"semicolons": "always",
+		"quoteStyle": "single",
+		"jsxQuoteStyle": "double",
+		"quoteProperties": "asNeeded",
+		"trailingCommas": "all",
+		"arrowParentheses": "always",
+		"bracketSpacing": true,
+		"javascript.bracketSpacing": true,
+		"graphql.bracketSpacing": true,
+		"bracketSameLine": true,
+		"css.enabled": true,
+		"graphql.enabled": true,
+		"css.indentWidth": 2,
+		"css.indentStyle": "tab",
+		"css.lineWidth": 100,
+		"javascript.indentWidth": 2,
+		"javascript.indentStyle": "tab",
+		"javascript.lineWidth": 100,
+		"json.indentWidth": 2,
+		"json.indentStyle": "tab",
+		"json.lineWidth": 100
+	},
+	"exec": {
+		"cwd": "${configDir}",
+		"commands": [
+			{
+				"command": "gofmt -s",
+				"exts": ["go"]
+			}
+		]
+	},
+	"excludes": [
+		"**/.claude/",
+		"**/.venv",
+		"**/*-lock.json",
+		"**/node_modules",
+		"**/bun.lock",
+		"**/dist",
+		"vendor/"
+	],
+	"plugins": [
+		"https://plugins.dprint.dev/kjanat/shfmt-1.1.1.wasm",
+		"https://plugins.dprint.dev/kjanat/sortpackagejson-0.2.1.wasm",
+		"https://plugins.dprint.dev/kjanat/svg-v0.4.1.wasm",
+		"npm:@dprint/exec@0.7.3/plugin.json@704701df449dd7e942a71144773778ac529d68c2e4657bfc236d393b898b9a67",
+		"npm:@dprint/biome@0.15.1",
+		"npm:dprint-plugin-malva@0.16.0",
+		"npm:@dprint/json@0.25.2",
+		"npm:@dprint/markdown@0.28.0",
+		"npm:@dprint/typescript@0.96.1",
+		"npm:dprint-plugin-markup@0.27.6",
+		"npm:dprint-plugin-yaml@0.6.0"
+	]
+}

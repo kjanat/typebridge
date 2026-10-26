@@ -1,0 +1,59 @@
+{
+	"name": "typebridge",
+	"private": true,
+	"description": "Native and WebAssembly TypeScript compiler bridges for JavaScript tooling.",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kjanat/typebridge.git"
+	},
+	"license": "MIT",
+	"type": "module",
+	"workspaces": ["protocol", "bridge", "compat", "wasm", "vue-mapper"],
+	"scripts": {
+		"build": "tsdown",
+		"build:go": "run -sq @kjanat/tsc-bridge:build @kjanat/tsc-wasm:build @kjanat/tsc-compat:build",
+		"fmt": "dprint fmt",
+		"lint": "biome lint",
+		"prepare": "run -s build:go build",
+		"publish:preview": "bunx pkg-pr-new publish --packageManager=bun --bun --template './examples/tsc-compat' ./protocol ./bridge ./compat ./wasm ./vue-mapper",
+		"sync:typescript": "run sync-typescript.mjs",
+		"test": "run -s test:unit @kjanat/tsc-wasm:test @kjanat/tsc-protocol:test @kjanat/tsc-bridge:test:go",
+		"test:unit": "bun test",
+		"typecheck": "run -s typecheck:root @kjanat/tsc-protocol:typecheck @kjanat/tsc-bridge:typecheck @kjanat/tsc-compat:typecheck @kjanat/tsc-wasm:typecheck @kjanat/tsc-vue-mapper:typecheck",
+		"typecheck:root": "run typescript --noEmit -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:ts",
+		"@types/node": "catalog:ts",
+		"biome": "catalog:",
+		"dprint": "catalog:",
+		"rolldown-plugin-wasm": "catalog:build",
+		"runner-run": "catalog:",
+		"tsdown": "catalog:build",
+		"typescript": "catalog:ts7",
+		"vue": "catalog:"
+	},
+	"packageManager": "bun@1.4.4",
+	"catalog": {
+		"@kjanat/dreamcli": "npm:@kjanat/dreamcli@^5.0.0",
+		"biome": "npm:@biomejs/biome@^2.5.14",
+		"dprint": "^0.64.0",
+		"runner-run": "^0.28.0",
+		"vue": "^3.5.43"
+	},
+	"catalogs": {
+		"build": {
+			"tsdown": "^0.23.0",
+			"rolldown-plugin-wasm": "^0.3.2"
+		},
+		"ts": {
+			"@types/bun": "^1.4.2",
+			"@types/node": "^26.6.3",
+			"@volar/typescript": "2.4.28",
+			"@vue/language-core": "^3.3.11"
+		},
+		"ts7": {
+			"typescript": "npm:typescript@7.1.0-dev.20261024.1"
+		}
+	}
+}

@@ -1,0 +1,52 @@
+{
+	"name": "@kjanat/tsc-compat",
+	"version": "0.0.0",
+	"description": "TypeScript 6 parser and configuration API backed by the TypeScript Go compiler in WebAssembly.",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kjanat/typebridge.git",
+		"directory": "compat"
+	},
+	"license": "MIT",
+	"type": "module",
+	"imports": {
+		"#*": "./src/*.ts",
+		"#pkg": "./package.json"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"default": "./dist/index.mjs"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": ["/bin/", "/dist/"],
+	"scripts": {
+		"build": "bun build.ts",
+		"test": "bun test",
+		"typecheck": "run typescript --noEmit -p tsconfig.json"
+	},
+	"dependencies": {
+		"@kjanat/tsc-protocol": "workspace:*",
+		"typescript": "7.1.0-dev.20261024.1"
+	},
+	"devDependencies": {
+		"tsdown": "catalog:build"
+	},
+	"engines": {
+		"bun": ">=1.4.2",
+		"node": ">=24"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		},
+		"runtime": {
+			"name": "bun",
+			"version": ">=1.4.2",
+			"onFail": "error"
+		}
+	}
+}

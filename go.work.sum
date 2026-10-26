@@ -1,0 +1,9 @@
+github.com/mackerelio/go-osstat v0.2.8 h1:I2duicTaCGWoM53XwAwA9OIe1inu0xnVs8/pqOWWVr4=
+github.com/mackerelio/go-osstat v0.2.8/go.mod h1:SyS3XxKdoSKJnTGTkN5Yrh6VUQVuAURACfE6y+2DN4k=
+github.com/matryer/moq v0.7.1/go.mod h1:IabIiFkaKCyHxej25INgFR+fnOxSZFMv2LYrU+ioyDs=
+github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
+golang.org/x/mod v0.41.0/go.mod h1:Ek9pY8RKWXwsWvd3rQiHYtMqkjSUV+s1Rj7j4H5Ur6o=
+golang.org/x/term v0.46.0 h1:3+OXuTbaKDgwk8jTi3aSLHRlmWqHEUDUtxnbFigO4YE=
+golang.org/x/term v0.46.0/go.mod h1:+K02xbkittuwc0Am4abfA3Fc+XRGXkvBXNO88NCXPoc=
+golang.org/x/tools v0.50.0/go.mod h1:7ulVMw3831Mwi5EZD6RomGyffr4VFjuNYXf2BbCEAV0=
