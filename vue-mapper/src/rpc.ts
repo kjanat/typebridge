@@ -1,9 +1,14 @@
-import { isRecord } from '@kjanat/tsc-protocol';
-export type Handler = (method: string, params: unknown) => unknown;
+import type {
+	MapperConnection,
+	MapperRequest,
+	MapperResponse,
+	MapperResult,
+} from '@kjanat/tsc-protocol';
+import { decodeMapperMessage, encodeMapperResponse } from '@kjanat/tsc-protocol';
+import { Effect } from 'effect';
 
-export interface Connection {
-	receive(chunk: Uint8Array): void;
-}
+export type { MapperConnection as Connection } from '@kjanat/tsc-protocol';
+export type Handler = (request: MapperRequest) => Effect.Effect<MapperResult, Error>;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -23,25 +28,39 @@ function headerEnd(buffer: Uint8Array): number {
 	return -1;
 }
 
-function frame(message: Readonly<Record<string, unknown>>): Uint8Array {
-	const body = encoder.encode(JSON.stringify({ jsonrpc: '2.0', ...message }));
+function frame(message: MapperResponse): Uint8Array {
+	const body = encoder.encode(encodeMapperResponse(message));
 	return concat(encoder.encode(`Content-Length: ${body.length}\r\n\r\n`), body);
 }
 
-export function createConnection(handle: Handler, send: (chunk: Uint8Array) => void): Connection {
+export function createConnection(
+	handle: Handler,
+	send: (chunk: Uint8Array) => void,
+): MapperConnection {
 	let pending = new Uint8Array(0);
 
-	function dispatch(message: unknown): void {
-		if (!isRecord(message) || typeof message.method !== 'string') return;
-		const { id, method, params } = message;
-		try {
-			const result = handle(method, params);
-			if (id !== undefined) send(frame({ id, result: result ?? null }));
-		} catch (error) {
-			if (id === undefined) return;
-			const text = error instanceof Error ? (error.stack ?? error.message) : String(error);
-			send(frame({ id, error: { code: -32603, message: text } }));
-		}
+	function dispatch(message: MapperRequest | MapperResponse): void {
+		if (!('method' in message)) return;
+		const { id } = message;
+		Effect.runSync(
+			handle(message).pipe(
+				Effect.match({
+					onSuccess: (result) => {
+						if (id !== undefined) send(frame({ jsonrpc: '2.0', id, result: result ?? null }));
+					},
+					onFailure: (error) => {
+						if (id === undefined) return;
+						send(
+							frame({
+								jsonrpc: '2.0',
+								id,
+								error: { code: -32603, message: error.stack ?? error.message },
+							}),
+						);
+					},
+				}),
+			),
+		);
 	}
 
 	return {
@@ -58,7 +77,7 @@ export function createConnection(handle: Handler, send: (chunk: Uint8Array) => v
 				const start = end + separator.length;
 				const stop = start + Number(length);
 				if (pending.length < stop) return;
-				const message: unknown = JSON.parse(decoder.decode(pending.subarray(start, stop)));
+				const message = decodeMapperMessage(decoder.decode(pending.subarray(start, stop)));
 				pending = pending.slice(stop);
 				dispatch(message);
 			}

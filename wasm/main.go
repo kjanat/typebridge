@@ -43,13 +43,13 @@ func main() {
 		close(done)
 		return nil
 	})
-	api := js.Global().Get(name)
-	if api.Type() != js.TypeObject {
-		api = js.Global().Get("Object").New()
+	host := js.Global().Get(name + "Host")
+	if host.Type() == js.TypeObject {
+		if spawn := host.Get("spawn"); spawn.Type() == js.TypeFunction {
+			protocol.SetSpawner(hostSpawner(spawn))
+		}
 	}
-	if spawn := api.Get("spawn"); spawn.Type() == js.TypeFunction {
-		protocol.SetSpawner(hostSpawner(spawn))
-	}
+	api := js.Global().Get("Object").New()
 	api.Set("invoke", invoke)
 	api.Set("close", stop)
 	js.Global().Set(name, api)

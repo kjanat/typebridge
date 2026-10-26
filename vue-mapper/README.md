@@ -1,64 +1,129 @@
-# Vue content mapper
+# @kjanat/tsc-vue-mapper
 
-Type-checks Vue single-file components with the TypeScript compiler of
-[`@kjanat/tsc-bridge`](../bridge/README.md). It implements TypeScript's content
-mapper protocol. The compiler starts `node dist/server.mjs` and asks it to turn each
-`.vue` file into TypeScript with `@vue/language-core`, the code generator behind
-vue-tsc.
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-vue-mapper?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-vue-mapper)
 
-## Use
+Type-check Vue single-file components with the TypeScript Go compiler. The mapper
+uses Vue language-core to generate TypeScript and Volar's source maps and
+verification rules to report diagnostics against your `.vue` source.
 
-Declare the mapper in the project's tsconfig:
+## Install
+
+Install the mapper alongside a compiler bridge in your Vue project:
+
+```sh
+npm install --save-dev @kjanat/tsc-vue-mapper @kjanat/tsc-bridge
+```
+
+Requires Node.js 24+ or Bun 1.4.2+. Your project supplies its Vue dependency and
+other libraries referenced by its components.
+
+## Configure the project
+
+Add a content mapper to your `tsconfig.json`:
 
 ```json
 {
+	"compilerOptions": {
+		"strict": true,
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"target": "ESNext"
+	},
+	"include": ["src/**/*.ts", "src/**/*.vue"],
 	"contentMappers": [{ "package": "@kjanat/tsc-vue-mapper", "extensions": [".vue"] }]
 }
 ```
 
-Then check the project with external code enabled:
+Existing `vueCompilerOptions`, including options inherited through `extends`, are
+read from that configuration.
 
-```ts
+## Check Vue components
+
+```typescript
+import { createTscBridge, formatDiagnostic } from '@kjanat/tsc-bridge';
+
+const compiler = createTscBridge();
+try {
+	const diagnostics = await compiler.checkProject('./tsconfig.json', {
+		runExternalCode: true,
+	});
+	for (const diagnostic of diagnostics) {
+		console.log(formatDiagnostic(diagnostic, process.cwd()));
+	}
+} finally {
+	await compiler.close();
+}
+```
+
+Set `runExternalCode: true` to enable the mapper. The native bridge launches the
+packaged mapper server using `node`, which must be available on `PATH`.
+Diagnostics are returned as data; compiler or mapper failures reject the request.
+
+For a synchronous integration:
+
+```typescript
 import { checkProjectSync, formatDiagnostic } from '@kjanat/tsc-bridge';
 
-for (const diagnostic of checkProjectSync('tsconfig.json', { runExternalCode: true })) {
+const diagnostics = checkProjectSync('./tsconfig.json', { runExternalCode: true });
+for (const diagnostic of diagnostics) {
 	console.log(formatDiagnostic(diagnostic, process.cwd()));
 }
 ```
 
-Vue options come from `vueCompilerOptions` in that configuration and the
-configurations it extends. The native bridge starts the mapper as
-`node dist/server.mjs`, so `node` must be on `PATH`. The WebAssembly bridge imports
-`dist/index.mjs`, named by `tscBridge.module`, and runs the mapper inside the
-calling process through `connect(send)`.
-
-`@vue/language-core` parses `<script>` blocks and reads `vueCompilerOptions`
-through TypeScript 6's synchronous JavaScript API, which TypeScript 7 does not
-ship. The mapper hands it [`@kjanat/tsc-compat`](../compat/README.md), which
-serves that API from the bridge's own compiler.
-
-## Diagnostics
-
-The upstream protocol hides diagnostics by virtual range, for every error code
-alike. vue-tsc decides per diagnostic: some generated code hides only certain
-codes, and `@vue-expect-error` counts the errors it hides. This package sets
-`tscBridge.verify` in its `package.json`, so the bridge starts a second instance
-of the mapper and sends it the compiler's diagnostics. That instance regenerates
-each component, places every diagnostic with Volar's own source map and
-verification rules, and rejects the request if its generated code differs from
-the code the compiler checked.
-
-Without the bridge, for example under `tsc --runExternalCode`, only the range
-rules apply. Positions can then differ from vue-tsc and `@vue-expect-error` has
-no effect.
-
-## Test
-
-With the bridge built, from this directory:
+## Use the WebAssembly bridge
 
 ```sh
-bun test
+npm install --save-dev @kjanat/tsc-wasm
 ```
 
-The test checks [`test/fixture`](./test/fixture) and expects the exact output of
-vue-tsc 3.3.11 on TypeScript 6.0.3 for the same files.
+```typescript
+import { createWasmBridge } from '@kjanat/tsc-wasm';
+
+const compiler = await createWasmBridge();
+try {
+	const diagnostics = await compiler.checkProject('./tsconfig.json', {
+		runExternalCode: true,
+	});
+	console.log(diagnostics);
+} finally {
+	await compiler.close();
+}
+```
+
+Use the same tsconfig. The WASM bridge imports this package's mapper module and
+runs it inside the calling process. Both bridges also offer scoped Effect APIs;
+pass the same `runExternalCode` option to their `checkProject` operation.
+
+## Diagnostic behavior
+
+The mapper applies Volar's per-diagnostic verification rules, including
+`@vue-expect-error`. Typebridge uses the package's `tscBridge.verify` metadata to
+request diagnostic placement after compilation. The verification step checks
+that its generated TypeScript matches what the compiler checked.
+
+The package also implements TypeScript's upstream content-mapper protocol. With
+`tsc --runExternalCode`, upstream range mapping applies; Typebridge's additional
+verification step supplies per-code filtering and `@vue-expect-error` handling.
+
+## Embed the mapper
+
+Custom hosts can import `connect`:
+
+```typescript
+import { connect } from '@kjanat/tsc-vue-mapper';
+
+const connection = connect((chunk) => {
+	// Forward these response bytes to your compiler transport.
+	process.stdout.write(chunk);
+});
+// Feed incoming framed request bytes to connection.receive(chunk).
+```
+
+The connection consumes and produces `Uint8Array` chunks with `Content-Length`
+framing and JSON-RPC 2.0 message bodies. The `tsc-vue-mapper` executable exposes the
+same protocol over stdin/stdout. Most applications should configure the package
+through `contentMappers` as shown above.
+
+## License
+
+MIT. Source and development instructions: [Typebridge](https://github.com/kjanat/typebridge).

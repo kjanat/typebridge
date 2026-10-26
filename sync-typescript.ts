@@ -1,16 +1,18 @@
 #!/usr/bin/env bun
-/** Synchronize the native compiler with the exact TypeScript npm release. */
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+/** Synchronize the native compiler with the exact TypeScript npm release. */
+import { Schema } from 'effect';
+import manifest from '#pkg' with { type: 'json' };
+import compat from './compat/package.json' with { type: 'json' };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const compilerModule = 'github.com/microsoft/TypeScript/tsc';
 const modules = ['protocol', 'compat', 'bridge', 'wasm'];
 
-/** @param {unknown} catalog @param {unknown} compat @returns {string} */
-export function compilerVersion(catalog, compat) {
+export function compilerVersion(catalog: unknown, compat: unknown): string {
 	if (
 		typeof catalog !== 'string' ||
 		!/^npm:typescript@7\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(catalog)
@@ -22,16 +24,14 @@ export function compilerVersion(catalog, compat) {
 	return version;
 }
 
-/** @param {unknown} value @returns {string} */
-export function compilerCommit(value) {
+export function compilerCommit(value: unknown): string {
 	if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
 		throw new Error('The TypeScript npm release must identify its full gitHead');
 	}
 	return value;
 }
 
-/** @param {string} command @param {string[]} args @param {string} [cwd] */
-function run(command, args, cwd = root) {
+function run(command: string, args: readonly string[], cwd = root): string {
 	return execFileSync(command, args, {
 		cwd,
 		encoding: 'utf8',
@@ -42,18 +42,19 @@ function run(command, args, cwd = root) {
 }
 
 async function syncCompiler() {
-	const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-	const compat = JSON.parse(await readFile(path.join(root, 'compat/package.json'), 'utf8'));
 	const version = compilerVersion(
 		manifest.catalogs?.ts7?.typescript,
 		compat.dependencies?.typescript,
 	);
 	const commit = compilerCommit(
-		JSON.parse(run('bun', ['pm', 'view', `typescript@${version}`, 'gitHead', '--json'])),
+		Schema.decodeUnknownSync(Schema.fromJsonString(Schema.String))(
+			run('bun', ['pm', 'view', `typescript@${version}`, 'gitHead', '--json']),
+		),
 	);
-	const resolved = JSON.parse(run('go', ['list', '-m', '-json', `${compilerModule}@${commit}`]));
+	const resolved = Schema.decodeUnknownSync(
+		Schema.fromJsonString(Schema.Struct({ Version: Schema.String })),
+	)(run('go', ['list', '-m', '-json', `${compilerModule}@${commit}`]));
 	if (
-		typeof resolved.Version !== 'string' ||
 		!/^v0\.0\.0-\d{14}-[0-9a-f]{12}$/.test(resolved.Version) ||
 		!resolved.Version.endsWith(commit.slice(0, 12))
 	) {

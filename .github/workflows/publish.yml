@@ -1,0 +1,37 @@
+name: npm staging
+on: { workflow_call: {} }
+permissions: { contents: read }
+defaults: { run: { shell: "bash -euo pipefail {0}" } }
+jobs:
+  stage:
+    name: Stage ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix: { package: [protocol, bridge, compat, wasm, vue-mapper] }
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: { name: npm, deployment: false }
+    permissions: { contents: read, id-token: write }
+    env: { PACKAGE: "${{ matrix.package }}" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm with staging and trusted-publisher support
+        run: npm install --global npm@12.2.1 --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: "package-${{ matrix.package }}", path: artifacts }
+      - name: Verify archive checksum
+        working-directory: artifacts
+        run: sha256sum -c ./*.sha256
+      - name: Stage the tested tarball
+        env: { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }
+        run: |
+          version=$(tar -xOf "artifacts/${PACKAGE}.tgz" package/package.json | jq -er '.version')
+          dist_tag=latest
+          if [[ "${version}" == *-* ]]; then dist_tag=next; fi
+          npm stage publish "./artifacts/${PACKAGE}.tgz" --access public --provenance --ignore-scripts --tag "${dist_tag}"

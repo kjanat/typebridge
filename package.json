@@ -8,6 +8,9 @@
 	},
 	"license": "MIT",
 	"type": "module",
+	"imports": {
+		"#pkg": "./package.json"
+	},
 	"workspaces": ["protocol", "bridge", "compat", "wasm", "vue-mapper"],
 	"scripts": {
 		"build": "tsdown",
@@ -15,18 +18,22 @@
 		"fmt": "dprint fmt",
 		"lint": "biome lint",
 		"prepare": "run -s build:go build",
-		"publish:preview": "bunx pkg-pr-new publish --packageManager=bun --bun --template './examples/tsc-compat' ./protocol ./bridge ./compat ./wasm ./vue-mapper",
-		"sync:typescript": "run sync-typescript.mjs",
+		"publish:preview": "bunx --bun pkg-pr-new@0.0.92 publish --packageManager=bun --template './examples/tsc-compat' './artifacts/*.tgz'",
+		"sync:typescript": "run sync-typescript.ts",
 		"test": "run -s test:unit @kjanat/tsc-wasm:test @kjanat/tsc-protocol:test @kjanat/tsc-bridge:test:go",
 		"test:unit": "bun test",
 		"typecheck": "run -s typecheck:root @kjanat/tsc-protocol:typecheck @kjanat/tsc-bridge:typecheck @kjanat/tsc-compat:typecheck @kjanat/tsc-wasm:typecheck @kjanat/tsc-vue-mapper:typecheck",
 		"typecheck:root": "run typescript --noEmit -p tsconfig.json"
 	},
 	"devDependencies": {
+		"@kjanat/tsc-bridge": "workspace:*",
+		"@kjanat/tsc-protocol": "workspace:*",
+		"@kjanat/tsc-wasm": "workspace:*",
 		"@types/bun": "catalog:ts",
 		"@types/node": "catalog:ts",
 		"biome": "catalog:",
 		"dprint": "catalog:",
+		"effect": "catalog:",
 		"rolldown-plugin-wasm": "catalog:build",
 		"runner-run": "catalog:",
 		"tsdown": "catalog:build",
@@ -39,7 +46,8 @@
 		"biome": "npm:@biomejs/biome@^2.5.14",
 		"dprint": "^0.64.0",
 		"runner-run": "^0.28.0",
-		"vue": "^3.5.43"
+		"vue": "^3.5.43",
+		"effect": "4.0.6"
 	},
 	"catalogs": {
 		"build": {

@@ -1,37 +1,64 @@
-export interface Diagnostic {
-	readonly code: number;
-	readonly category: number;
-	readonly message: string;
-	/** `message` followed by its chained messages, as TypeScript prints them. */
-	readonly messageText: string;
-	readonly fileName?: string;
-	/** Zero-based UTF-8 byte offset, matching the Go compiler. */
-	readonly start: number;
-	/** Length in UTF-8 bytes. */
-	readonly length: number;
+export type {
+	MapperConnection,
+	MapperModule,
+	MapperRequest,
+	MapperResponse,
+	MapperResult,
+	MapperSegment,
+	MapperSourceSpan,
+	MapperTransformParams,
+	MapperVerifyParams,
+} from './mapper.ts';
+export {
+	decodeMapperMessage,
+	encodeMapperResponse,
+	MapperRequestSchema,
+	MapperResponseSchema,
+	MapperResultSchema,
+	MapperTransformParamsSchema,
+	MapperVerifyParamsSchema,
+} from './mapper.ts';
+
+import { Effect, Schema } from 'effect';
+
+const DiagnosticBase = Schema.Struct({
+	code: Schema.Int,
+	category: Schema.Int,
+	message: Schema.String,
+	messageText: Schema.String,
+	fileName: Schema.optional(Schema.String),
+	start: Schema.Int,
+	length: Schema.Int,
+});
+
+type DiagnosticFields = typeof DiagnosticBase.Type;
+export interface Diagnostic extends DiagnosticFields {
 	readonly children?: readonly Diagnostic[];
 }
 
-export interface TranspileResult {
-	readonly outputText: string;
-	/** Syntactic and compiler-option diagnostics; transpilation does not typecheck. */
-	readonly diagnostics: readonly Diagnostic[];
-}
+export const DiagnosticSchema: Schema.Codec<Diagnostic> = Schema.Struct({
+	...DiagnosticBase.fields,
+	children: Schema.optional(Schema.Array(Schema.suspend(() => DiagnosticSchema))),
+});
 
-export interface CodeUnion {
-	readonly name: string;
-	readonly codes: readonly string[];
-}
+export const TranspileResultSchema = Schema.Struct({
+	outputText: Schema.String,
+	diagnostics: Schema.Array(DiagnosticSchema),
+});
+export type TranspileResult = typeof TranspileResultSchema.Type;
 
-/** Applied as a tsconfig that extends the project's configuration. */
-export interface ProjectOverrides {
-	/** Replaces the project's root files. Paths are relative to the configuration file's directory. */
-	readonly files?: readonly string[];
-	/** tsconfig `compilerOptions` layered over the project's own. */
-	readonly compilerOptions?: Readonly<Record<string, unknown>>;
-	/** Runs the content mappers the project configures, like `tsc --runExternalCode`. */
-	readonly runExternalCode?: boolean;
-}
+export const CodeUnionSchema = Schema.Struct({
+	name: Schema.String,
+	codes: Schema.Array(Schema.String),
+});
+export type CodeUnion = typeof CodeUnionSchema.Type;
+
+export const ProjectOverridesSchema = Schema.Struct({
+	files: Schema.optional(Schema.Array(Schema.String)),
+	compilerOptions: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+	runExternalCode: Schema.optional(Schema.Boolean),
+});
+export type ProjectOverrides = typeof ProjectOverridesSchema.Type;
 
 export interface TscBridge {
 	transpile(source: string, fileName?: string): Promise<TranspileResult>;
@@ -45,68 +72,54 @@ export interface TscBridge {
 	close(): Promise<void>;
 }
 
-export interface BridgeResponse extends TranspileResult {
-	readonly unions: readonly CodeUnion[];
-}
+export const BridgeResponseSchema = Schema.Struct({
+	...TranspileResultSchema.fields,
+	unions: Schema.Array(CodeUnionSchema),
+});
+export type BridgeResponse = typeof BridgeResponseSchema.Type;
 
-export type BridgeRequest =
-	| { readonly method: 'transpile'; readonly source: string; readonly fileName?: string }
-	| ({ readonly method: 'checkProject'; readonly configPath: string } & ProjectOverrides)
-	| {
-			readonly method: 'exportedCodeUnions';
-			readonly configPath: string;
-			readonly entrypoints: readonly string[];
-	  };
+export const BridgeRequestSchema = Schema.Union([
+	Schema.Struct({
+		method: Schema.Literal('transpile'),
+		source: Schema.String,
+		fileName: Schema.optional(Schema.String),
+	}),
+	Schema.Struct({
+		method: Schema.Literal('checkProject'),
+		configPath: Schema.String,
+		...ProjectOverridesSchema.fields,
+	}),
+	Schema.Struct({
+		method: Schema.Literal('exportedCodeUnions'),
+		configPath: Schema.String,
+		entrypoints: Schema.Array(Schema.String),
+	}),
+]);
+export type BridgeRequest = typeof BridgeRequestSchema.Type;
+
+export const WireResponseSchema = Schema.Union([
+	Schema.Struct({ id: Schema.Int, error: Schema.String }),
+	Schema.Struct({ id: Schema.Int, ...BridgeResponseSchema.fields }),
+]);
+export type WireResponse = typeof WireResponseSchema.Type;
+
+const decodeWireResponse = Schema.decodeUnknownSync(Schema.fromJsonString(WireResponseSchema));
+const decodeRequest = Schema.decodeUnknownSync(BridgeRequestSchema);
+
+export function encodeRequest(id: number, request: BridgeRequest): string {
+	return JSON.stringify({ id, ...decodeRequest(request) });
+}
 
 export type DecodedResponse =
 	| { readonly id: number; readonly ok: true; readonly response: BridgeResponse }
 	| { readonly id: number; readonly ok: false; readonly error: string };
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isDiagnostic(value: unknown): value is Diagnostic {
-	return (
-		isRecord(value) &&
-		typeof value.code === 'number' &&
-		typeof value.category === 'number' &&
-		typeof value.message === 'string' &&
-		typeof value.messageText === 'string' &&
-		typeof value.start === 'number' &&
-		typeof value.length === 'number' &&
-		(value.fileName === undefined || typeof value.fileName === 'string') &&
-		(value.children === undefined ||
-			(Array.isArray(value.children) && value.children.every(isDiagnostic)))
-	);
-}
-
-function isCodeUnion(value: unknown): value is CodeUnion {
-	return (
-		isRecord(value) &&
-		typeof value.name === 'string' &&
-		Array.isArray(value.codes) &&
-		value.codes.every((code: unknown) => typeof code === 'string')
-	);
-}
-
-/** Parses one serialized response, rejecting anything that is not a well-formed response. */
+/** Decodes the Go response and separates compiler failures from results. */
 export function decodeResponse(text: string): DecodedResponse {
-	const value: unknown = JSON.parse(text);
-	if (!isRecord(value) || typeof value.id !== 'number') throw new Error('Invalid helper response');
-	const { id } = value;
-	if (typeof value.error === 'string') return { id, ok: false, error: value.error };
-	const { outputText, diagnostics, unions } = value;
-	if (
-		typeof outputText !== 'string' ||
-		!Array.isArray(diagnostics) ||
-		!diagnostics.every(isDiagnostic) ||
-		!Array.isArray(unions) ||
-		!unions.every(isCodeUnion)
-	) {
-		throw new Error('Invalid helper response payload');
-	}
-	return { id, ok: true, response: { outputText, diagnostics, unions } };
+	const value = decodeWireResponse(text);
+	if ('error' in value) return { id: value.id, ok: false, error: value.error };
+	const { id, ...response } = value;
+	return { id, ok: true, response };
 }
 
 /** Parses the response to request `id`, throwing its error if it carries one. */
@@ -143,5 +156,51 @@ export function clientFor(
 			return (await request({ method: 'exportedCodeUnions', configPath, entrypoints })).unions;
 		},
 		close,
+	};
+}
+
+/** Effect API shared by the native and WASM transports. */
+export interface Compiler {
+	transpile(source: string, fileName?: string): Effect.Effect<TranspileResult, Error>;
+	checkProject(
+		configPath: string,
+		overrides?: ProjectOverrides,
+	): Effect.Effect<readonly Diagnostic[], Error>;
+	exportedCodeUnions(
+		configPath: string,
+		entrypoints: readonly string[],
+	): Effect.Effect<readonly CodeUnion[], Error>;
+	readonly close: Effect.Effect<void, Error>;
+}
+
+export function compilerFor(
+	request: (payload: BridgeRequest) => Effect.Effect<BridgeResponse, Error>,
+	close: Effect.Effect<void, Error>,
+): Compiler {
+	return {
+		transpile: (source, fileName) =>
+			request({ method: 'transpile', source, fileName }).pipe(
+				Effect.map(({ outputText, diagnostics }) => ({ outputText, diagnostics })),
+			),
+		checkProject: (configPath, overrides = {}) =>
+			request({ method: 'checkProject', configPath, ...overrides }).pipe(
+				Effect.map(({ diagnostics }) => diagnostics),
+			),
+		exportedCodeUnions: (configPath, entrypoints) =>
+			request({ method: 'exportedCodeUnions', configPath, entrypoints }).pipe(
+				Effect.map(({ unions }) => unions),
+			),
+		close,
+	};
+}
+
+export function promiseClientFor(compiler: Compiler): TscBridge {
+	return {
+		transpile: (source, fileName) => Effect.runPromise(compiler.transpile(source, fileName)),
+		checkProject: (configPath, overrides) =>
+			Effect.runPromise(compiler.checkProject(configPath, overrides)),
+		exportedCodeUnions: (configPath, entrypoints) =>
+			Effect.runPromise(compiler.exportedCodeUnions(configPath, entrypoints)),
+		close: () => Effect.runPromise(compiler.close),
 	};
 }

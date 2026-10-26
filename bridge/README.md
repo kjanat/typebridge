@@ -1,91 +1,152 @@
-# Experimental TypeScript Go bridge
+# @kjanat/tsc-bridge
 
-The native transport for [`@kjanat/tsc-protocol`](../protocol/README.md): a
-persistent Go helper that answers requests over stdin/stdout, and a JS-facing
-client authored in TypeScript. Node 26 and Bun can import the client directly.
-Request handling, the compiler, and the wire types all live in the protocol
-package.
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-bridge?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-bridge)
 
-## Build and test
+Run the TypeScript Go compiler from Node.js or Bun. Transpile source, check a
+project, and extract exported string-literal error codes through a persistent
+native compiler process.
 
-Requires Go 1.27 or newer. From this directory:
+## Install
 
 ```sh
-go build -p 2 -trimpath -o bin/tsc-bridge .
-bun test # or: node --test test/*.ts
+npm install @kjanat/tsc-bridge
 ```
 
-The executable is ignored by Git. On Windows, use `bin/tsc-bridge.exe`.
+Requires Node.js 24+ or Bun 1.4.2+. The package includes a compiled helper; its
+operating system and architecture must match your machine. Use
+[@kjanat/tsc-wasm](https://www.npmjs.com/package/@kjanat/tsc-wasm) for an in-process
+WebAssembly compiler, or supply your own native helper with `executable`.
 
-## Use from the repository root
+## Transpile and check a project
 
-```ts
-import { createTscBridge } from '@kjanat/tsc-bridge';
+```typescript
+import { createTscBridge, formatDiagnostic } from '@kjanat/tsc-bridge';
 
 const compiler = createTscBridge();
 try {
-	const emitted = await compiler.transpile('export const answer: number = 42;');
-	console.log(emitted.outputText);
+	const result = await compiler.transpile('export const answer: number = 42;');
+	console.log(result.outputText);
 
-	const diagnostics = await compiler.checkProject('wasm/test/fixture/tsconfig.json');
-	console.log(diagnostics);
-
-	const unions = await compiler.exportedCodeUnions('wasm/test/fixture/tsconfig.json', ['index.ts']);
-	console.log(unions);
+	const diagnostics = await compiler.checkProject('./tsconfig.json');
+	for (const diagnostic of diagnostics) {
+		console.log(formatDiagnostic(diagnostic, process.cwd()));
+	}
 } finally {
 	await compiler.close();
 }
 ```
 
-- `transpile(source, fileName?)` emits ESNext modules and reports syntax and option
-  diagnostics. It does not perform semantic type checking.
-- `checkProject(configPath, { files, compilerOptions, runExternalCode }?)` returns
-  configuration, syntax, global, and semantic diagnostics for one project. It reads
-  the project's compiler options and embeds the matching upstream standard
-  libraries. It never emits project files and does not recursively build project
-  references. `files` replaces the project's root files and `compilerOptions` is
-  layered over the project's own, as a tsconfig that extends `configPath` would;
-  both resolve relative to the configuration file. `runExternalCode` runs the
-  content mappers the tsconfig declares in `contentMappers`, as
-  `tsc --runExternalCode` does. [`@kjanat/tsc-vue-mapper`](../vue-mapper/README.md)
-  is one.
-- `exportedCodeUnions(configPath, entrypoints)` evaluates exported types whose names
-  end in `ErrorCode` or `ReasonCode`, following re-exports and collecting their string
-  literal members. Results are sorted and duplicate exports are deduplicated;
-  conflicting same-name unions are rejected. This provides error-code extraction for tooling.
+`transpile` emits ESNext JavaScript and returns syntax and option diagnostics.
+`checkProject` performs configuration, syntax, global and semantic checks using
+your project's compiler options. Project checking does not emit files or build
+referenced projects recursively.
 
-Paths resolve against the helper's `cwd` (the caller's working directory by
-default); entrypoints resolve relative to the configuration file. Each project
-request rereads the configuration and every source file. The helper keeps each
-project's parsed files and per-file semantic diagnostics, and reuses them for
-files whose text is unchanged and whose dependencies are unaffected, as
-`tsc --watch` does. Requests share one process and execute sequentially.
-Diagnostics use zero-based UTF-8 byte offsets, not JavaScript string offsets.
-`message` holds a diagnostic's own text and `messageText` the text with its
-chained messages, indented as TypeScript prints them.
+Compiler diagnostics are returned as data. Request, process and transport failures
+reject the Promise. Always await `close()` to finish queued work and shut down the
+helper. Requests on one instance execute sequentially. Reuse an instance across
+checks to benefit from its project cache; each check rereads the configuration and
+source files and updates affected diagnostics.
 
-`createTscBridge({ executable, cwd, timeoutMs })` can override the binary, working
-directory, and per-request timeout (60 seconds by default). Always await `close()`
-to finish pending work and reap the process. Compiler diagnostics are returned as
-data; request, transport, and process failures reject the promise.
-
-The transport is newline-delimited JSON over stdin/stdout. For a direct smoke test:
+## Effect API
 
 ```sh
-printf '%s\n' '{"id":1,"method":"transpile","source":"export const x: number = 1;"}' \
-  | ./bin/tsc-bridge
+npm install effect
 ```
 
-`transpileSync(source, { fileName, executable, cwd, timeoutMs }?)` provides the
-same transpilation result for synchronous consumers such as Markdown renderers.
-It starts and reaps one helper per call; repeated snippets should be cached by
-the caller. Its timeout defaults to 60 seconds and output is limited to 16 MiB.
-`checkProjectSync(configPath, { files, compilerOptions, runExternalCode, executable, cwd, timeoutMs }?)`
-does the same for `checkProject`.
+```typescript
+import { Effect } from 'effect';
+import { makeTscBridge } from '@kjanat/tsc-bridge';
 
-`formatDiagnostic(diagnostic, root)` prints a diagnostic the way
-`tsc --pretty false` does, with its file path relative to `root`. It reads the
-file to turn the byte offset into a line and column.
+const diagnostics = await Effect.runPromise(
+	Effect.scoped(
+		Effect.gen(function* () {
+			const compiler = yield* makeTscBridge();
+			return yield* compiler.checkProject('./tsconfig.json');
+		}),
+	),
+);
+console.log(diagnostics);
+```
 
-The types (`Diagnostic`, `TscBridge`, `ProjectOverrides` and the rest) are
-re-exported from `@kjanat/tsc-protocol`.
+`makeTscBridge(options?)` acquires a scoped `Compiler`. Its operations return Effects
+with `Error` failures. Scope completion shuts down the process after success,
+failure or interruption. Interrupting a request stops the helper and fails its
+pending requests. Request spans are named `typebridge.request`.
+
+## Options and project overrides
+
+Both factories accept these options:
+
+| Option       | Meaning                                                     | Default                         |
+| ------------ | ----------------------------------------------------------- | ------------------------------- |
+| `executable` | Path to a compatible native compiler helper.                | Helper included in the package. |
+| `cwd`        | Working directory for the helper and relative config paths. | Caller's working directory.     |
+| `timeoutMs`  | Positive per-request deadline in milliseconds.              | `60000`                         |
+
+Project checks accept an optional second argument:
+
+```typescript
+const diagnostics = await compiler.checkProject('./tsconfig.json', {
+	files: ['src/index.ts'],
+	compilerOptions: { strict: true },
+	runExternalCode: true,
+});
+```
+
+`files` replaces the root file list. `compilerOptions` overrides the project's
+options as an extending tsconfig would. File paths in those overrides resolve
+relative to the configuration file. `runExternalCode` enables content mappers
+declared in the tsconfig, including
+[@kjanat/tsc-vue-mapper](https://www.npmjs.com/package/@kjanat/tsc-vue-mapper).
+
+## Extract error-code unions
+
+Given an entrypoint that exports:
+
+```typescript
+export type ParseErrorCode = 'malformed' | 'unsupported';
+```
+
+Call:
+
+```typescript
+const unions = await compiler.exportedCodeUnions('./tsconfig.json', ['src/index.ts']);
+console.log(unions);
+// [{ name: 'ParseErrorCode', codes: ['malformed', 'unsupported'] }]
+```
+
+Entrypoints resolve relative to the configuration file. The compiler follows
+re-exports and evaluates types whose names end in `ErrorCode` or `ReasonCode`.
+Results are sorted, duplicate exports are deduplicated, and conflicting unions
+with the same name produce an error.
+
+## Synchronous integrations
+
+```typescript
+import { transpileSync, checkProjectSync } from '@kjanat/tsc-bridge';
+
+const result = transpileSync('export const answer: number = 42;', {
+	fileName: 'example.ts',
+});
+const diagnostics = checkProjectSync('./tsconfig.json');
+console.log(result.outputText, diagnostics);
+```
+
+Each synchronous call starts one helper and shuts it down afterward. These functions
+accept the same helper options; `checkProjectSync` also accepts project overrides.
+Output is limited to 16 MiB per call.
+
+## Diagnostic format
+
+Diagnostics include `code`, `category`, `message`, `messageText`, `start`, `length`,
+an optional `fileName`, and optional chained `children`. Positions use zero-based
+UTF-8 byte offsets. `message` is the diagnostic's own text; `messageText` includes
+its indented message chain. `formatDiagnostic(diagnostic, root)` reads the source
+to produce a relative path and line/column, like `tsc --pretty false`.
+
+Shared types, including `Compiler`, `TscBridge`, `Diagnostic`, `ProjectOverrides`,
+`TranspileResult` and `CodeUnion`, are re-exported by this package.
+
+## License
+
+MIT. Source and development instructions: [Typebridge](https://github.com/kjanat/typebridge).

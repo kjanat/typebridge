@@ -1,82 +1,133 @@
-# Experimental TypeScript compiler in WebAssembly
+# @kjanat/tsc-wasm
 
-The compiler of [`@kjanat/tsc-bridge`](../bridge/README.md), running inside
-Node or Bun through Go's `js/wasm` target. Compiler calls execute in-process, with
-no helper executable.
+[![NPM Version](https://img.shields.io/npm/v/@kjanat/tsc-wasm?logo=npm&labelColor=CB3837&color=black)](https://npm.im/@kjanat/tsc-wasm)
 
-## Use
+Run the TypeScript Go compiler as WebAssembly inside Node.js or Bun. Transpile
+source, check projects and extract error-code unions through an in-process
+compiler with Promise and Effect APIs.
 
-```ts
+## Install
+
+```sh
+npm install @kjanat/tsc-wasm
+```
+
+Requires Node.js 24+ or Bun 1.4.2+. The package includes the compiler module and its
+Go runtime glue. Filesystem access uses Node-compatible APIs.
+
+## Transpile and check a project
+
+```typescript
 import { createWasmBridge } from '@kjanat/tsc-wasm';
 
 const compiler = await createWasmBridge();
 try {
-	const emitted = await compiler.transpile('export const answer: number = 42;');
-	const diagnostics = await compiler.checkProject('wasm/test/fixture/tsconfig.json');
-	const unions = await compiler.exportedCodeUnions('wasm/test/fixture/tsconfig.json', ['index.ts']);
+	const result = await compiler.transpile('export const answer: number = 42;');
+	console.log(result.outputText);
+
+	const diagnostics = await compiler.checkProject('./tsconfig.json');
+	console.log(diagnostics);
 } finally {
 	await compiler.close();
 }
 ```
 
-`createWasmBridge({ wasm }?)` loads `bin/tsc-bridge.wasm`, or the module at `wasm`,
-and resolves to the same `TscBridge` interface as `createTscBridge`: `transpile`,
-`checkProject` with its `files` and `compilerOptions` overrides, and
-`exportedCodeUnions`, with identical results. With `runExternalCode`, a content
-mapper whose `package.json` names a module in `tscBridge.module` runs in this
-process: the loader imports the module and passes the compiler's bytes to the
-`connect(send)` function it exports. Other mappers run as child processes through
-`node:child_process`, and `close()` kills any that are still running. Paths resolve against the process's
-working directory. Requests run concurrently, and each instance keeps its own
-project cache. `close()` waits for in-flight requests, stops the Go runtime and
-disposes its timers; later requests reject.
+`transpile(source, fileName?)` emits ESNext JavaScript and reports syntax and option
+diagnostics. `checkProject(configPath, overrides?)` performs configuration, syntax,
+global and semantic checks. It does not emit project files or recursively build
+project references.
 
-Filesystem access comes from `node:fs`, so this runs in Node and Bun. A browser
-adaptation needs a virtual filesystem and should put the compiler in a Worker.
-Timer cleanup uses the Go glue's internal timeout map, so it must be rechecked on
-Go upgrades.
+Compiler diagnostics are returned as data. Loading, request and runtime failures
+reject the Promise. Each instance has its own project cache and supports concurrent
+requests. `close()` waits for active work, stops the runtime and mapper processes,
+and clears runtime timers. Calls after closing reject.
 
-## Build and test
-
-Requires Go 1.27+ and Node 26. From the repository root:
+## Effect API
 
 ```sh
-bun run build:go
-bun run build
-bun run test
+npm install effect
 ```
 
-After building, the probe also runs directly in Bun:
+```typescript
+import { Effect } from 'effect';
+import { makeWasmBridge } from '@kjanat/tsc-wasm';
 
-```sh
-bun wasm/probe.ts
+const diagnostics = await Effect.runPromise(
+	Effect.scoped(
+		Effect.gen(function* () {
+			const compiler = yield* makeWasmBridge();
+			return yield* compiler.checkProject('./tsconfig.json');
+		}),
+	),
+);
+console.log(diagnostics);
 ```
 
-The build produces `bin/tsc-bridge.wasm` and the matching `bin/wasm_exec.js`.
-Both are available locally and ignored by Git. All paths are derived from the
-scripts' locations; no `/tmp` files or machine-specific paths are needed.
-This directory is its own Go module. [`main.go`](./main.go) builds only for
-`js/wasm` and imports `github.com/microsoft/TypeScript/tsc/protocol`, which
-`go.mod` replaces with [`../protocol`](../protocol/README.md); compiler logic
-stays there. The loader takes its types and client from `@kjanat/tsc-protocol`
-too, and needs `@kjanat/tsc-bridge` only for the probe's comparison. The
-repository's `go.work` lists the modules for editors and `go` commands run from
-the root. `build.ts` builds with `GOWORK=off`, so only `go.mod` decides the
-dependencies.
+`makeWasmBridge(options?)` acquires a scoped `Compiler`. Operations return Effects
+with `Error` failures. The scope manages the runtime, timers, mapper processes and
+request fibers. Scope teardown stops mapper processes, cancels outstanding request
+workers and shuts down the runtime. Explicit `compiler.close` waits for active
+requests to finish before shutting down.
+Request spans are named `typebridge.request`.
 
-The probe checks:
+## Project overrides
 
-- Emitted JavaScript executes correctly, and invalid syntax produces diagnostics.
-- The standalone fixture checks without diagnostics.
-- The fixture exports two known error/reason code unions; both match the expected values and the native bridge.
-- Twelve concurrent transpile, project-check, override and union requests, spread
-  over two instances, each return the native bridge's result for the same request.
-- `close()` lets an in-flight request finish, and requests after it reject.
+```typescript
+const diagnostics = await compiler.checkProject('./tsconfig.json', {
+	files: ['src/index.ts'],
+	compilerOptions: { strict: true },
+	runExternalCode: true,
+});
+```
 
-It reports module size, gzip size, startup time and per-request timings. The
-initial standard-Go build was about 32 MiB, or 7.5 MiB gzipped; timings are
-measurements of the current run.
+Config paths resolve against the process working directory. `files` replaces the
+project root files and `compilerOptions` overrides the project's options. Paths in
+the overrides resolve relative to the configuration file.
 
-TinyGo 0.42.0 failed to compile the native bridge with
-`panic: unknown type: T`; this build uses standard Go. Newer TinyGo versions have
-not been tested.
+`runExternalCode` enables configured content mappers. Mappers with a
+`tscBridge.module` entry run in-process through their `connect(send)` export.
+Other mappers run as child processes. For Vue components, install and configure
+[@kjanat/tsc-vue-mapper](https://www.npmjs.com/package/@kjanat/tsc-vue-mapper).
+
+## Extract error-code unions
+
+```typescript
+const unions = await compiler.exportedCodeUnions('./tsconfig.json', ['src/index.ts']);
+console.log(unions);
+```
+
+This evaluates exported string-literal unions whose names end in `ErrorCode` or
+`ReasonCode`, including re-exports. Each result has a `name` and a sorted `codes`
+array. Entrypoints resolve relative to the configuration file. Duplicate exports
+are deduplicated; conflicting same-name unions produce an error.
+
+## Load a custom compiler module
+
+Both factories accept `{ wasm?: string | URL }`:
+
+```typescript
+import { createWasmBridge } from '@kjanat/tsc-wasm';
+
+const compiler = await createWasmBridge({
+	wasm: new URL('./compiler.wasm', import.meta.url),
+});
+```
+
+The custom module must implement the bridge ABI and work with the included Go
+runtime glue. Omit this option to use the packaged compiler.
+
+## Shared API and diagnostics
+
+The Promise client implements `TscBridge`; the Effect client implements `Compiler`.
+These interfaces and the `Diagnostic`, `TranspileResult`, `CodeUnion` and
+`ProjectOverrides` types are re-exported by this package.
+
+Diagnostics use zero-based UTF-8 byte offsets. `message` contains the diagnostic's
+own text, `messageText` includes chained messages, and `children` carries the chain
+structure. The native package also provides
+[`formatDiagnostic`](https://www.npmjs.com/package/@kjanat/tsc-bridge) for rendering
+file locations and messages.
+
+## License
+
+MIT. Source and development instructions: [Typebridge](https://github.com/kjanat/typebridge).

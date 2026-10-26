@@ -27,7 +27,8 @@
 		"typecheck": "run typescript --noEmit -p tsconfig.json"
 	},
 	"dependencies": {
-		"@kjanat/tsc-protocol": "workspace:*"
+		"@kjanat/tsc-protocol": "workspace:*",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@kjanat/tsc-bridge": "workspace:*",
