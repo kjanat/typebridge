@@ -62,7 +62,7 @@ jobs:
             tar -xzf "${archive}" --strip-components=1 -C "../${workspace}"
           done
       - run: bun run typecheck:root
-      - run: bun test test/effect.test.ts
+      - run: bun test ./test
       - run: bun run lint
       - uses: kjanat/dprint-check@29c42153a7346f4d7315883ff7722cfe22cd510c # v3
   consumer:

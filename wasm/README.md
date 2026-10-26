@@ -65,7 +65,9 @@ console.log(diagnostics);
 
 `makeWasmBridge(options?)` acquires a scoped `Compiler`. Operations return Effects
 with `Error` failures. The scope manages the runtime, timers, mapper processes and
-request fibers, and cleans them up after success, failure or interruption.
+request fibers. Scope teardown stops mapper processes, cancels outstanding request
+workers and shuts down the runtime. Explicit `compiler.close` waits for active
+requests to finish before shutting down.
 Request spans are named `typebridge.request`.
 
 ## Project overrides

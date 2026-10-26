@@ -86,18 +86,20 @@ export function makeWasmBridge(
 		if (api === undefined) return yield* Effect.fail(new Error('The WASM bridge did not start'));
 		let nextId = 1;
 		let closing = false;
-		const close = yield* Effect.cached(
+		const stop = yield* Effect.cached(
 			Effect.gen(function* () {
 				closing = true;
-				yield* FiberSet.awaitEmpty(requests);
-				yield* Effect.sync(() => {
-					host.stop();
-					api.close();
-				});
+				yield* Effect.sync(() => host.stop());
+				yield* FiberSet.clear(requests);
+				yield* Effect.sync(() => api.close());
 				yield* Fiber.join(runtime);
 			}),
 		);
-		yield* Effect.addFinalizer(() => Effect.orDie(close));
+		const close = Effect.suspend(() => {
+			closing = true;
+			return FiberSet.awaitEmpty(requests).pipe(Effect.andThen(stop));
+		});
+		yield* Effect.addFinalizer(() => Effect.orDie(stop));
 
 		const request = (payload: BridgeRequest): Effect.Effect<BridgeResponse, Error> =>
 			Effect.gen(function* () {
@@ -137,7 +139,10 @@ export async function createWasmBridge(options: WasmBridgeOptions = {}): Promise
 	const scope = Scope.makeUnsafe();
 	try {
 		const compiler = await Effect.runPromise(Scope.provide(makeWasmBridge(options), scope));
-		return promiseClientFor({ ...compiler, close: Scope.close(scope, Exit.void) });
+		return promiseClientFor({
+			...compiler,
+			close: compiler.close.pipe(Effect.ensuring(Scope.close(scope, Exit.void))),
+		});
 	} catch (error) {
 		await Effect.runPromise(Scope.close(scope, Exit.fail(error)));
 		throw error;

@@ -54,8 +54,9 @@ const diagnostics = await Effect.runPromise(
 `makeTscBridge` and `makeWasmBridge` acquire scoped compiler resources. Their
 operations return Effects with typed failures. Scope completion closes the process
 or WASM instance after success, failure or interruption. Native requests use Deferreds
-for response correlation, deadlines and interruption. WASM requests run in a FiberSet;
-shutdown waits for active requests before stopping the runtime and mapper processes.
+for response correlation, deadlines and interruption. WASM requests run in a FiberSet.
+Explicit `close()` waits for active requests. Scope teardown stops mapper processes,
+cancels request workers and shuts down the WASM runtime.
 
 ## Promise API
 
