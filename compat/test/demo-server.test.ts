@@ -1,4 +1,3 @@
-import { isRecord } from '@kjanat/tsc-protocol';
 import { expect, test } from 'bun:test';
 import { createConnection, createServer } from 'node:net';
 import path from 'node:path';
@@ -7,13 +6,6 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const demoDirectory = path.join(projectRoot, 'examples/tsc-compat');
 const serverPath = path.join(demoDirectory, 'server.js');
-
-function record(value: unknown): Readonly<Record<string, unknown>> {
-	if (!isRecord(value)) {
-		throw new Error('expected a JSON object');
-	}
-	return value;
-}
 
 async function availablePort(): Promise<number> {
 	const listener = createServer();
@@ -96,8 +88,8 @@ test('the demo server contains aborted uploads and completed-request failures', 
 			body: 'const value = 42;',
 		});
 		expect(parsed.status).toBe(200);
-		const payload = record(await parsed.json());
-		expect(record(payload.tree).kind).toBe('SourceFile');
+		const payload: { readonly tree: { readonly kind: string } } = await parsed.json();
+		expect(payload.tree.kind).toBe('SourceFile');
 	} finally {
 		child.kill('SIGKILL');
 		await child.exited;

@@ -5,10 +5,14 @@
     "": {
       "name": "@kjanat/tsc-workspace",
       "devDependencies": {
+        "@kjanat/tsc-bridge": "workspace:*",
+        "@kjanat/tsc-protocol": "workspace:*",
+        "@kjanat/tsc-wasm": "workspace:*",
         "@types/bun": "catalog:ts",
         "@types/node": "catalog:ts",
         "biome": "catalog:",
         "dprint": "catalog:",
+        "effect": "catalog:",
         "rolldown-plugin-wasm": "catalog:build",
         "runner-run": "catalog:",
         "tsdown": "catalog:build",
@@ -21,6 +25,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@kjanat/tsc-protocol": "workspace:*",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@kjanat/dreamcli": "catalog:",
@@ -32,7 +37,7 @@
       "name": "@kjanat/tsc-compat",
       "version": "0.0.0",
       "dependencies": {
-        "@kjanat/tsc-protocol": "workspace:*",
+        "effect": "catalog:",
         "typescript": "7.1.0-dev.20261024.1",
       },
       "devDependencies": {
@@ -42,6 +47,9 @@
     "protocol": {
       "name": "@kjanat/tsc-protocol",
       "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
       "devDependencies": {
         "tsdown": "catalog:build",
       },
@@ -56,6 +64,7 @@
         "@kjanat/tsc-compat": "workspace:*",
         "@kjanat/tsc-protocol": "workspace:*",
         "@vue/language-core": "catalog:ts",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@kjanat/tsc-bridge": "workspace:*",
@@ -69,6 +78,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@kjanat/tsc-protocol": "workspace:*",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@kjanat/tsc-bridge": "workspace:*",
@@ -80,6 +90,7 @@
     "@kjanat/dreamcli": "npm:@kjanat/dreamcli@^5.0.0",
     "biome": "npm:@biomejs/biome@^2.5.14",
     "dprint": "^0.64.0",
+    "effect": "4.0.6",
     "runner-run": "^0.28.0",
     "vue": "^3.5.43",
   },
@@ -350,6 +361,8 @@
     "dprint": ["dprint@0.64.3", "", { "optionalDependencies": { "@dprint/android-arm64": "0.64.3", "@dprint/android-x64": "0.64.3", "@dprint/darwin-arm64": "0.64.3", "@dprint/darwin-x64": "0.64.3", "@dprint/freebsd-arm64": "0.64.3", "@dprint/freebsd-x64": "0.64.3", "@dprint/linux-arm64-glibc": "0.64.3", "@dprint/linux-arm64-musl": "0.64.3", "@dprint/linux-loong64-glibc": "0.64.3", "@dprint/linux-loong64-musl": "0.64.3", "@dprint/linux-ppc64-glibc": "0.64.3", "@dprint/linux-ppc64-musl": "0.64.3", "@dprint/linux-riscv64-glibc": "0.64.3", "@dprint/linux-riscv64-musl": "0.64.3", "@dprint/linux-s390x-glibc": "0.64.3", "@dprint/linux-x64-glibc": "0.64.3", "@dprint/linux-x64-musl": "0.64.3", "@dprint/win32-arm64": "0.64.3", "@dprint/win32-x64": "0.64.3" }, "hasInstallScript": true, "bin": { "dprint": "bin.cjs" } }, "sha512-/ENhr1iBM1ZfDBdLRCwSuOZ6SCv6cN6Tl3xvtJDHJbFJYjiYy6AHrzPtU/FSCvEG16YTcCNqkO/xDBxaDHIh8w=="],
 
     "dts-resolver": ["dts-resolver@3.0.0", "", { "peerDependencies": { "oxc-resolver": ">=11.0.0" }, "optionalPeers": ["oxc-resolver"] }, "sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q=="],
+
+    "effect": ["effect@4.0.6", "", {}, "sha512-Tc3mkzuLR6t6P9dhLt0D2GrxYtmU5td4XEJEiXCmILz53IRIfJyHsKZWjTA3xEjiwpNTtXBgI4iqYPxMztBDrw=="],
 
     "empathic": ["empathic@2.1.0", "", {}, "sha512-AnfC1ATldl49/cvZdLPDjBfrRNwbDO05aibiOtzQu3qtlbJtomNLhF30HEtn/7iBz50dlMECqATo3fG0LrdEgw=="],
 

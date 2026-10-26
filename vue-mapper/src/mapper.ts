@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import * as ts from '@kjanat/tsc-compat';
@@ -10,7 +11,13 @@ import {
 	shouldReportDiagnostics,
 } from '@vue/language-core';
 import type { Handler } from '#rpc';
-import { isRecord } from '@kjanat/tsc-protocol';
+import type {
+	MapperTransformParams,
+	MapperVerifyParams,
+	MapperSegment,
+	MapperSourceSpan,
+	MapperResult,
+} from '@kjanat/tsc-protocol';
 
 type VuePlugin = LanguagePlugin<string, VueVirtualCode>;
 
@@ -20,32 +27,8 @@ interface Generated {
 	readonly mappings: CodeMapping[];
 }
 
-interface VerifyDiagnostic {
-	readonly start: number;
-	readonly length: number;
-	readonly code: number;
-	readonly source?: string;
-}
-
-interface VerifyFile {
-	readonly fileName: string;
-	readonly content: string;
-	readonly virtualText: string;
-	readonly diagnostics: readonly VerifyDiagnostic[];
-}
-
-interface SourceSpan {
-	readonly start: number;
-	readonly length: number;
-}
-
-type Segment = readonly [
-	virtualStart: number,
-	virtualLength: number,
-	originalStart: number,
-	originalLength: number,
-	kind: number,
-];
+type SourceSpan = MapperSourceSpan;
+type Segment = MapperSegment;
 
 type Directive = readonly [
 	originalStart: number,
@@ -58,45 +41,6 @@ type Directive = readonly [
 const verbatim = 0;
 const atom = 1;
 const ignore = 0;
-
-function isString(value: unknown): value is string {
-	return typeof value === 'string';
-}
-
-function isOffset(value: unknown): value is number {
-	return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-function isVerifyDiagnostic(value: unknown): value is VerifyDiagnostic {
-	return (
-		isRecord(value) &&
-		isOffset(value.start) &&
-		isOffset(value.length) &&
-		isOffset(value.code) &&
-		(value.source === undefined || isString(value.source))
-	);
-}
-
-function isVerifyFile(value: unknown): value is VerifyFile {
-	return (
-		isRecord(value) &&
-		isString(value.fileName) &&
-		isString(value.content) &&
-		isString(value.virtualText) &&
-		Array.isArray(value.diagnostics) &&
-		value.diagnostics.every(isVerifyDiagnostic)
-	);
-}
-
-function isVerifyFiles(value: unknown): value is readonly VerifyFile[] {
-	return Array.isArray(value) && value.every(isVerifyFile);
-}
-
-function read<T>(params: unknown, key: string, guard: (value: unknown) => value is T): T {
-	const value = isRecord(params) ? params[key] : undefined;
-	if (!guard(value)) throw new TypeError(`Invalid ${key}: ${JSON.stringify(value)}`);
-	return value;
-}
 
 const plugins = new Map<string, VuePlugin>();
 
@@ -199,16 +143,12 @@ function gaps(mappings: readonly CodeMapping[], length: number): Directive[] {
 	return result;
 }
 
-function transform(projects: ReadonlyMap<string, string>, params: unknown) {
-	const handle = read(params, 'projectHandle', isString);
+function transform(projects: ReadonlyMap<string, string>, params: MapperTransformParams) {
+	const handle = params.projectHandle;
 	const configFileName = projects.get(handle);
 	if (configFileName === undefined) throw new Error(`Unknown project handle ${handle}`);
-	const content = read(params, 'content', isString);
-	const generated = generate(
-		pluginFor(configFileName),
-		read(params, 'fileName', isString),
-		content,
-	);
+	const content = params.content;
+	const generated = generate(pluginFor(configFileName), params.fileName, content);
 	return {
 		text: generated.text,
 		extension: generated.extension,
@@ -220,9 +160,9 @@ function transform(projects: ReadonlyMap<string, string>, params: unknown) {
 	};
 }
 
-function verify(params: unknown): (SourceSpan | null)[][] {
-	const plugin = pluginFor(read(params, 'configFileName', isString));
-	return read(params, 'files', isVerifyFiles).map((file) => {
+function verify(params: MapperVerifyParams): (SourceSpan | null)[][] {
+	const plugin = pluginFor(params.configFileName);
+	return params.files.map((file) => {
 		const generated = generate(plugin, file.fileName, file.content);
 		if (generated.text !== file.virtualText) {
 			throw new Error(`${file.fileName}: generated code differs from the compiled virtual file`);
@@ -242,25 +182,28 @@ function verify(params: unknown): (SourceSpan | null)[][] {
 
 export function createHandler(): Handler {
 	const projects = new Map<string, string>();
-	return (method, params) => {
-		switch (method) {
-			case 'initialize':
-				return { positionEncoding: 'utf-16', diagnosticSource: 'vue' };
-			case 'openProject':
-				projects.set(
-					read(params, 'projectHandle', isString),
-					read(params, 'configFileName', isString),
-				);
-				return {};
-			case 'closeProject':
-				projects.delete(read(params, 'projectHandle', isString));
-				return null;
-			case 'transform':
-				return transform(projects, params);
-			case 'verify':
-				return verify(params);
-			default:
-				throw new Error(`Unknown method: ${method}`);
-		}
-	};
+	return (request) =>
+		Effect.try({
+			try: (): MapperResult => {
+				const { method } = request;
+				switch (method) {
+					case 'initialize':
+						return { positionEncoding: 'utf-16', diagnosticSource: 'vue' } as const;
+					case 'openProject':
+						projects.set(request.params.projectHandle, request.params.configFileName);
+						return {};
+					case 'closeProject':
+						projects.delete(request.params.projectHandle);
+						return null;
+					case 'transform':
+						return transform(projects, request.params);
+					case 'verify':
+						return verify(request.params);
+					default:
+						throw new Error(`Unknown method: ${method}`);
+				}
+			},
+			catch: (cause) =>
+				cause instanceof Error ? cause : new Error('Vue mapper failed', { cause }),
+		});
 }

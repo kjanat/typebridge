@@ -31,7 +31,8 @@
 	"dependencies": {
 		"@kjanat/tsc-compat": "workspace:*",
 		"@kjanat/tsc-protocol": "workspace:*",
-		"@vue/language-core": "catalog:ts"
+		"@vue/language-core": "catalog:ts",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@kjanat/tsc-bridge": "workspace:*",

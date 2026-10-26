@@ -27,7 +27,7 @@
 		"typecheck": "run typescript --noEmit -p tsconfig.json"
 	},
 	"dependencies": {
-		"@kjanat/tsc-protocol": "workspace:*",
+		"effect": "catalog:",
 		"typescript": "7.1.0-dev.20261024.1"
 	},
 	"devDependencies": {

@@ -1,11 +1,13 @@
+import { Effect, Exit, Fiber, FiberSet, Scope } from 'effect';
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import type { BridgeRequest, BridgeResponse, TscBridge } from '@kjanat/tsc-protocol';
-import { clientFor, readResponse } from '@kjanat/tsc-protocol';
+import type { BridgeRequest, BridgeResponse, Compiler, TscBridge } from '@kjanat/tsc-protocol';
+import { compilerFor, encodeRequest, promiseClientFor, readResponse } from '@kjanat/tsc-protocol';
 import { createHost } from '#host';
 import initBridge from '../bin/tsc-bridge.wasm?init';
 
 export type {
+	Compiler,
 	CodeUnion,
 	Diagnostic,
 	ProjectOverrides,
@@ -32,74 +34,112 @@ export interface WasmBridgeOptions {
 
 let instances = 0;
 
-function isGoConstructor(value: unknown): value is new () => GoRuntime {
-	return typeof value === 'function';
-}
-
-function isExported(value: unknown): value is Exported {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		typeof Reflect.get(value, 'invoke') === 'function' &&
-		typeof Reflect.get(value, 'close') === 'function'
-	);
-}
-
 async function goRuntime(): Promise<new () => GoRuntime> {
 	if (Reflect.get(globalThis, 'fs') === undefined) Reflect.set(globalThis, 'fs', fs);
 	await import(new URL('../bin/wasm_exec.js', import.meta.url).href);
-	const Go: unknown = Reflect.get(globalThis, 'Go');
-	if (!isGoConstructor(Go)) throw new Error('wasm_exec.js did not define Go');
+	const Go: (new () => GoRuntime) | undefined = Reflect.get(globalThis, 'Go');
+	if (Go === undefined) throw new Error('wasm_exec.js did not define Go');
 	return Go;
 }
 
-/**
- * Starts the compiler in this process. Paths resolve against the process's working
- * directory, and requests run concurrently.
- */
-export async function createWasmBridge(options: WasmBridgeOptions = {}): Promise<TscBridge> {
-	const Go = await goRuntime();
-	const go = new Go();
-	const name = `tscWasm${++instances}`;
-	go.env = { ...go.env, TSC_WASM_GLOBAL: name };
-	const host = createHost();
-	Reflect.set(globalThis, name, { spawn: host.spawn });
-	const instance =
-		options.wasm === undefined
-			? await initBridge(go.importObject)
-			: (await WebAssembly.instantiate(await readFile(options.wasm), go.importObject)).instance;
-	const running = go.run(instance);
-	const api: unknown = Reflect.get(globalThis, name);
-	if (!isExported(api)) throw new Error('The WASM bridge did not start');
+/** Acquires a WASM compiler whose runtime and requests share an Effect scope. */
+export function makeWasmBridge(
+	options: WasmBridgeOptions = {},
+): Effect.Effect<Compiler, Error, Scope.Scope> {
+	return Effect.gen(function* () {
+		const host = yield* Effect.acquireRelease(Effect.sync(createHost), (value) =>
+			Effect.sync(() => value.stop()),
+		);
+		const Go = yield* Effect.tryPromise({
+			try: goRuntime,
+			catch: (cause) => new Error('Could not load the Go runtime', { cause }),
+		});
+		const go = new Go();
+		const name = `tscWasm${++instances}`;
+		go.env = { ...go.env, TSC_WASM_GLOBAL: name };
+		Reflect.set(globalThis, `${name}Host`, { spawn: host.spawn });
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => {
+				for (const timer of go._scheduledTimeouts.values()) clearTimeout(timer);
+				go._scheduledTimeouts.clear();
+				Reflect.deleteProperty(globalThis, name);
+				Reflect.deleteProperty(globalThis, `${name}Host`);
+			}),
+		);
+		const requests = yield* FiberSet.make<BridgeResponse, Error>();
+		const instance = yield* Effect.tryPromise({
+			try: async () =>
+				options.wasm === undefined
+					? initBridge(go.importObject)
+					: (await WebAssembly.instantiate(await readFile(options.wasm), go.importObject)).instance,
+			catch: (cause) => new Error('Could not instantiate the compiler WASM module', { cause }),
+		});
+		const running = go.run(instance);
+		const runtime = yield* Effect.forkScoped(
+			Effect.tryPromise({
+				try: () => running,
+				catch: (cause) => new Error('Compiler WASM runtime failed', { cause }),
+			}),
+			{ startImmediately: true },
+		);
+		const api: Exported | undefined = Reflect.get(globalThis, name);
+		if (api === undefined) return yield* Effect.fail(new Error('The WASM bridge did not start'));
+		let nextId = 1;
+		let closing = false;
+		const close = yield* Effect.cached(
+			Effect.gen(function* () {
+				closing = true;
+				yield* FiberSet.awaitEmpty(requests);
+				yield* Effect.sync(() => {
+					host.stop();
+					api.close();
+				});
+				yield* Fiber.join(runtime);
+			}),
+		);
+		yield* Effect.addFinalizer(() => Effect.orDie(close));
 
-	const pending = new Set<Promise<string>>();
-	let nextId = 1;
-	let closed: Promise<void> | undefined;
-
-	async function request(payload: BridgeRequest): Promise<BridgeResponse> {
-		if (closed !== undefined || !isExported(api)) throw new Error('TypeScript bridge is closed');
-		const id = nextId++;
-		const call = api.invoke(JSON.stringify({ id, ...payload }));
-		pending.add(call);
-		try {
-			const text = await call.catch((error: unknown) => {
-				throw error instanceof Error ? error : new Error(String(error));
+		const request = (payload: BridgeRequest): Effect.Effect<BridgeResponse, Error> =>
+			Effect.gen(function* () {
+				if (closing) return yield* Effect.fail(new Error('TypeScript bridge is closed'));
+				const id = nextId++;
+				const operation = Effect.tryPromise({
+					try: () => api.invoke(encodeRequest(id, payload)),
+					catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+				}).pipe(
+					Effect.flatMap((text) =>
+						Effect.try({
+							try: () => readResponse(text, id),
+							catch: (cause) => new Error('Invalid compiler response', { cause }),
+						}),
+					),
+					Effect.withSpan('typebridge.request', { attributes: { method: payload.method } }),
+				);
+				const fiber = yield* FiberSet.run(
+					requests,
+					Effect.raceFirst(
+						operation,
+						Fiber.join(runtime).pipe(
+							Effect.andThen(
+								Effect.fail(new Error('Compiler WASM runtime exited during a request')),
+							),
+						),
+					),
+				);
+				return yield* Fiber.join(fiber);
 			});
-			return readResponse(text, id);
-		} finally {
-			pending.delete(call);
-		}
-	}
-
-	return clientFor(request, () => {
-		closed ??= (async () => {
-			await Promise.allSettled(pending);
-			host.stop();
-			api.close();
-			await running;
-			for (const timer of go._scheduledTimeouts.values()) clearTimeout(timer);
-			go._scheduledTimeouts.clear();
-		})();
-		return closed;
+		return compilerFor(request, close);
 	});
+}
+
+/** Promise facade with explicit close for callers outside Effect. */
+export async function createWasmBridge(options: WasmBridgeOptions = {}): Promise<TscBridge> {
+	const scope = Scope.makeUnsafe();
+	try {
+		const compiler = await Effect.runPromise(Scope.provide(makeWasmBridge(options), scope));
+		return promiseClientFor({ ...compiler, close: Scope.close(scope, Exit.void) });
+	} catch (error) {
+		await Effect.runPromise(Scope.close(scope, Exit.fail(error)));
+		throw error;
+	}
 }

@@ -35,25 +35,53 @@ JavaScript packages. `bun run build:go` rebuilds the Go artifacts;
 and native helper checks. The Vue fixtures test the native and WASM transports
 against the same expected diagnostics.
 
-## Using the bridge
+## Effect API
+
+```typescript
+import { Effect } from 'effect';
+import { makeTscBridge } from '@kjanat/tsc-bridge';
+
+const diagnostics = await Effect.runPromise(
+	Effect.scoped(
+		Effect.gen(function* () {
+			const compiler = yield* makeTscBridge();
+			return yield* compiler.checkProject('./tsconfig.json');
+		}),
+	),
+);
+```
+
+`makeTscBridge` and `makeWasmBridge` acquire scoped compiler resources. Their
+operations return Effects with typed failures. Scope completion closes the process
+or WASM instance after success, failure or interruption. Native requests use Deferreds
+for response correlation, deadlines and interruption. WASM requests run in a FiberSet;
+shutdown waits for active requests before stopping the runtime and mapper processes.
+
+## Promise API
 
 ```typescript
 import { createTscBridge } from '@kjanat/tsc-bridge';
 
 const compiler = createTscBridge();
 try {
-	const result = await compiler.transpile('export const answer: number = 42;');
-	console.log(result.outputText);
-	console.log(await compiler.checkProject('./tsconfig.json'));
+	console.log(await compiler.transpile('export const answer: number = 42;'));
 } finally {
 	await compiler.close();
 }
 ```
 
-The WASM transport exposes the same asynchronous interface through
-`createWasmBridge` from `@kjanat/tsc-wasm`. The native package also exports
-`transpileSync`, `checkProjectSync`, and `formatDiagnostic` for synchronous tooling.
-See each package's README for its full API and content-mapper configuration.
+The Promise factories manage an Effect scope until `close()`. The native package
+also exports `transpileSync`, `checkProjectSync`, and `formatDiagnostic`.
+
+## Message schemas
+
+The protocol package defines Effect Schema codecs for compiler requests, responses,
+diagnostics, code unions and mapper RPC messages. TypeScript message types are
+inferred from these schemas. Each transport decodes at its input boundary; mapper
+responses are encoded through their result schema. The compatibility package has
+schemas for its parser diagnostics and configuration responses.
+
+See each package's README for its API and content-mapper configuration.
 
 ## AST explorer
 

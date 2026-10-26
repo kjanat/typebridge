@@ -1,3 +1,4 @@
+import { Deferred, Effect, Exit, Scope } from 'effect';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -6,15 +7,23 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import type {
 	BridgeRequest,
+	Compiler,
 	BridgeResponse,
 	Diagnostic,
 	ProjectOverrides,
 	TranspileResult,
 	TscBridge,
 } from '@kjanat/tsc-protocol';
-import { clientFor, decodeResponse, readResponse } from '@kjanat/tsc-protocol';
+import {
+	compilerFor,
+	decodeResponse,
+	encodeRequest,
+	promiseClientFor,
+	readResponse,
+} from '@kjanat/tsc-protocol';
 
 export type {
+	Compiler,
 	CodeUnion,
 	Diagnostic,
 	ProjectOverrides,
@@ -58,7 +67,7 @@ function requestSync(payload: BridgeRequest, options: HelperOptions): BridgeResp
 		encoding: 'utf8',
 		timeout: timeoutMs,
 		maxBuffer: 16 * 1024 * 1024,
-		input: `${JSON.stringify({ id: 1, ...payload })}\n`,
+		input: `${encodeRequest(1, payload)}\n`,
 	});
 	if (result.error) throw result.error;
 	if (result.status !== 0) {
@@ -93,96 +102,129 @@ export function checkProjectSync(
 	).diagnostics;
 }
 
-/** Starts one persistent helper process. Paths passed to it resolve against cwd. */
-export function createTscBridge(options: HelperOptions = {}): TscBridge {
-	const timeoutMs = options.timeoutMs ?? 60_000;
-	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be positive');
-	const executable = executableOf(options.executable);
-	const child = spawn(executable, [], { cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
-	const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
-	const pending = new Map<
-		number,
-		{
-			readonly resolve: (response: BridgeResponse) => void;
-			readonly reject: (error: Error) => void;
-			readonly timer: ReturnType<typeof setTimeout>;
-		}
-	>();
-	let nextId = 1;
-	let closing = false;
-	let failure: Error | undefined;
-	let stderr = '';
-	let resolveExit: () => void = () => {};
-	let rejectExit: (error: Error) => void = () => {};
-	const exited = new Promise<void>((resolve, reject) => {
-		resolveExit = resolve;
-		rejectExit = reject;
-	});
-	// A process can fail before the caller reaches close(). Handle the rejection until close() awaits it.
-	void exited.catch(() => {});
-
-	function fail(error: Error): void {
-		failure ??= error;
-		for (const item of pending.values()) {
-			clearTimeout(item.timer);
-			item.reject(failure);
-		}
-		pending.clear();
-	}
-
-	child.stderr.setEncoding('utf8');
-	child.stderr.on('data', (chunk: string) => {
-		stderr = (stderr + chunk).slice(-16_384);
-	});
-	child.on('error', (error) => {
-		fail(error);
-		rejectExit(error);
-	});
-	child.stdin.on('error', fail);
-	child.on('close', (code, signal) => {
-		lines.close();
-		if (code !== 0 || pending.size > 0 || !closing) {
-			fail(new Error(`TypeScript helper exited (${signal ?? code}): ${stderr.trim()}`));
-		}
-		if (failure) rejectExit(failure);
-		else resolveExit();
-	});
-	lines.on('line', (line) => {
-		try {
-			const decoded = decodeResponse(line);
-			const item = pending.get(decoded.id);
-			if (!item) throw new Error(`Unexpected response ID: ${decoded.id}`);
-			pending.delete(decoded.id);
-			clearTimeout(item.timer);
-			if (decoded.ok) item.resolve(decoded.response);
-			else item.reject(new Error(decoded.error));
-		} catch (error) {
-			fail(error instanceof Error ? error : new Error(String(error)));
-			child.kill();
-		}
-	});
-
-	function request(payload: BridgeRequest): Promise<BridgeResponse> {
-		if (failure) return Promise.reject(failure);
-		if (closing) return Promise.reject(new Error('TypeScript bridge is closed'));
-		return new Promise((resolve, reject) => {
-			const id = nextId++;
-			const timer = setTimeout(() => {
-				fail(new Error(`TypeScript request timed out: ${payload.method}`));
-				child.kill();
-			}, timeoutMs);
-			pending.set(id, { resolve, reject, timer });
-			child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`, (error) => {
-				if (error) fail(error);
+/** Acquires a compiler whose process is closed with its Effect scope. */
+export function makeTscBridge(
+	options: HelperOptions = {},
+): Effect.Effect<Compiler, Error, Scope.Scope> {
+	return Effect.acquireRelease(
+		Effect.gen(function* () {
+			const timeoutMs = options.timeoutMs ?? 60_000;
+			if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+				return yield* Effect.fail(new Error('timeoutMs must be positive'));
+			const exited = yield* Deferred.make<void, Error>();
+			const child = yield* Effect.try({
+				try: () =>
+					spawn(executableOf(options.executable), [], {
+						cwd: options.cwd,
+						stdio: ['pipe', 'pipe', 'pipe'],
+					}),
+				catch: (cause) => new Error('Could not start TypeScript helper', { cause }),
 			});
-		});
-	}
+			const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+			const pending = new Map<number, Deferred.Deferred<BridgeResponse, Error>>();
+			let nextId = 1;
+			let closing = false;
+			let failure: Error | undefined;
+			let stderr = '';
 
-	return clientFor(request, () => {
-		if (!closing) {
-			closing = true;
-			child.stdin.end();
-		}
-		return exited;
-	});
+			function fail(error: Error): void {
+				failure ??= error;
+				for (const item of pending.values()) Effect.runSync(Deferred.fail(item, failure));
+				pending.clear();
+			}
+
+			child.stderr.setEncoding('utf8');
+			child.stderr.on('data', (chunk: string) => {
+				stderr = (stderr + chunk).slice(-16_384);
+			});
+			child.on('error', (error) => {
+				fail(error);
+				Effect.runSync(Deferred.fail(exited, error));
+			});
+			child.stdin.on('error', fail);
+			child.on('close', (code, signal) => {
+				lines.close();
+				if (code !== 0 || pending.size > 0 || !closing)
+					fail(new Error(`TypeScript helper exited (${signal ?? code}): ${stderr.trim()}`));
+				Effect.runSync(
+					failure === undefined
+						? Deferred.succeed(exited, undefined)
+						: Deferred.fail(exited, failure),
+				);
+			});
+			lines.on('line', (line) => {
+				try {
+					const decoded = decodeResponse(line);
+					const item = pending.get(decoded.id);
+					if (item === undefined) throw new Error(`Unexpected response ID: ${decoded.id}`);
+					pending.delete(decoded.id);
+					Effect.runSync(
+						decoded.ok
+							? Deferred.succeed(item, decoded.response)
+							: Deferred.fail(item, new Error(decoded.error)),
+					);
+				} catch (cause) {
+					fail(cause instanceof Error ? cause : new Error(String(cause)));
+					child.kill();
+				}
+			});
+
+			const request = (payload: BridgeRequest): Effect.Effect<BridgeResponse, Error> =>
+				Effect.gen(function* () {
+					if (failure !== undefined) return yield* Effect.fail(failure);
+					if (closing) return yield* Effect.fail(new Error('TypeScript bridge is closed'));
+					const id = nextId++;
+					const input = yield* Effect.try({
+						try: () => encodeRequest(id, payload),
+						catch: (cause) => new Error('Invalid compiler request', { cause }),
+					});
+					const response = yield* Deferred.make<BridgeResponse, Error>();
+					pending.set(id, response);
+					child.stdin.write(`${input}\n`, (error) => {
+						if (error) fail(error);
+					});
+					return yield* Deferred.await(response).pipe(
+						Effect.timeoutOrElse({
+							duration: timeoutMs,
+							orElse: () =>
+								Effect.suspend(() => {
+									const error = new Error(`TypeScript request timed out: ${payload.method}`);
+									fail(error);
+									child.kill();
+									return Effect.fail(error);
+								}),
+						}),
+						Effect.onInterrupt(() =>
+							Effect.sync(() => {
+								fail(new Error(`TypeScript request interrupted: ${payload.method}`));
+								child.kill();
+							}),
+						),
+						Effect.ensuring(
+							Effect.sync(() => {
+								pending.delete(id);
+							}),
+						),
+						Effect.withSpan('typebridge.request', { attributes: { method: payload.method } }),
+					);
+				});
+
+			const close = Effect.suspend(() => {
+				if (!closing) {
+					closing = true;
+					child.stdin.end();
+				}
+				return Deferred.await(exited);
+			});
+			return compilerFor(request, close);
+		}),
+		(compiler) => Effect.orDie(compiler.close),
+	);
+}
+
+/** Promise facade with explicit close for callers outside Effect. */
+export function createTscBridge(options: HelperOptions = {}): TscBridge {
+	const scope = Scope.makeUnsafe();
+	const compiler = Effect.runSync(Scope.provide(makeTscBridge(options), scope));
+	return promiseClientFor({ ...compiler, close: Scope.close(scope, Exit.void) });
 }

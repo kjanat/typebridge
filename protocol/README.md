@@ -1,72 +1,118 @@
-# TypeScript compiler bridge protocol
+# @kjanat/tsc-protocol
 
-The request/response contract shared by the native bridge
-([`@kjanat/tsc-bridge`](../bridge/README.md)) and the WebAssembly bridge
-([`@kjanat/tsc-wasm`](../wasm/README.md)). Both halves of the contract live here:
+Typed compiler and content-mapper contracts for Typebridge. Effect Schema codecs
+define the messages; TypeScript types are inferred from those schemas. Use this
+package to implement a transport, integrate a mapper, or decode bridge messages.
 
-- **Go**, module `github.com/microsoft/TypeScript/tsc/protocol`: `Request`,
-  `Response` and `Handle`, which answers a request with the compiler and
-  keeps each project's parsed files and per-file diagnostics between requests.
-- **TypeScript**, package `@kjanat/tsc-protocol`: the matching wire types, the
-  `TscBridge` interface, `decodeResponse` and `readResponse` to validate
-  serialized responses, and `clientFor(request, close)`, which builds a
-  `TscBridge` over any transport.
+For a ready-to-use compiler, install
+[@kjanat/tsc-bridge](https://www.npmjs.com/package/@kjanat/tsc-bridge) or
+[@kjanat/tsc-wasm](https://www.npmjs.com/package/@kjanat/tsc-wasm).
 
-Each transport supplies only its own entry point and delivery: stdin/stdout for
-the native helper, a JS global for WebAssembly.
-
-## Content mappers
-
-A `checkProject` request with `runExternalCode` starts the content mappers the
-project's tsconfig declares, through upstream's content mapper host. Mapped files
-are transformed once per content change and cached with the project.
-
-Mapper processes start through `os/exec` unless the embedder calls `SetSpawner`.
-The WebAssembly entry point passes one that asks its JavaScript host for the
-connection.
-
-Upstream places a diagnostic in a mapped file through the mapper's span map.
-A mapper can take over placement by setting `"tscBridge": { "verify": true }` in
-its `package.json`. `Handle` then starts a second instance of the mapper and
-sends it one JSON-RPC `verify` request per check, framed like the upstream
-protocol:
-
-```json
-{
-	"configFileName": "/abs/tsconfig.json",
-	"options": {},
-	"files": [
-		{
-			"fileName": "/abs/App.vue",
-			"content": "<original text>",
-			"virtualText": "<generated text the compiler checked>",
-			"diagnostics": [{ "start": 120, "length": 4, "code": 2322 }]
-		}
-	]
-}
-```
-
-The result holds one array per file and one entry per diagnostic: a
-`{ "start", "length" }` span in the original text, or `null` to drop the
-diagnostic. Offsets on both sides are UTF-16 code units. `options` carries the
-`options` of the mapper's `contentMappers` entry, when it has any.
-
-The Go package imports TypeScript's compiler, checker, and transpiler directly.
-Its module path sits under `github.com/microsoft/TypeScript/tsc`, which satisfies
-Go's `internal` import rule. The upstream module is a normal dependency; no fork
-or source patches are used.
-
-The upstream compiler requirement is in [go.mod](./go.mod). The root
-`sync:typescript` command synchronizes all four Go modules with the exact
-TypeScript npm release. The Go API is internal and may change on updates.
-
-## Test
-
-Requires Go 1.27 or newer. From this directory:
+## Install
 
 ```sh
-go test -race -count=1 ./...
+npm install @kjanat/tsc-protocol effect
 ```
 
-The race test sends concurrent project requests through `Handle` and requires
-each result to match the sequential one.
+The package is ESM and declares Node.js 24+ or Bun 1.4.2+.
+
+## Encode a request and decode its response
+
+```typescript
+import { encodeRequest, readResponse } from '@kjanat/tsc-protocol';
+
+const request = encodeRequest(1, {
+	method: 'transpile',
+	source: 'export const answer: number = 42;',
+	fileName: 'example.ts',
+});
+console.log(request);
+
+// Pass the response text received from your transport to readResponse.
+const responseText = JSON.stringify({
+	id: 1,
+	outputText: 'export const answer = 42;\n',
+	diagnostics: [],
+	unions: [],
+});
+const response = readResponse(responseText, 1);
+console.log(response.outputText);
+```
+
+`encodeRequest(id, request)` checks the request fields and returns JSON text.
+`readResponse(text, id)` decodes the response, checks its ID and throws if it carries
+a compiler error. `decodeResponse(text)` exposes the result as an `ok` union:
+`{ id, ok: true, response }` or `{ id, ok: false, error }`. Malformed messages throw
+schema errors.
+
+## Compiler contracts
+
+| Request method       | Inputs                                                               | Result exposed by the client  |
+| -------------------- | -------------------------------------------------------------------- | ----------------------------- |
+| `transpile`          | `source`, optional `fileName`                                        | `{ outputText, diagnostics }` |
+| `checkProject`       | `configPath`, optional `files`, `compilerOptions`, `runExternalCode` | Diagnostic array.             |
+| `exportedCodeUnions` | `configPath`, `entrypoints`                                          | Array of `{ name, codes }`.   |
+
+The success wire envelope contains `id`, `outputText`, `diagnostics` and `unions`.
+An error envelope contains `id` and `error`. Native helpers exchange one JSON
+message per line; the WASM ABI passes the same JSON text to `invoke`.
+
+Exported schemas are `BridgeRequestSchema`, `BridgeResponseSchema`,
+`WireResponseSchema`, `DiagnosticSchema`, `TranspileResultSchema`, `CodeUnionSchema`
+and `ProjectOverridesSchema`. They can be composed with Effect Schema:
+
+```typescript
+import { Schema } from 'effect';
+import { BridgeRequestSchema } from '@kjanat/tsc-protocol';
+
+const decode = Schema.decodeUnknownSync(BridgeRequestSchema);
+const request = decode({ method: 'checkProject', configPath: './tsconfig.json' });
+console.log(request);
+```
+
+## Build a client over your transport
+
+`clientFor(request, close)` constructs the Promise-based `TscBridge` interface.
+Its `request` callback receives a `BridgeRequest` and resolves a decoded
+`BridgeResponse`; `close` performs transport cleanup.
+
+`compilerFor(request, close)` constructs the Effect-based `Compiler` interface.
+Its request callback returns `Effect<BridgeResponse, Error>` and its close argument
+is an `Effect<void, Error>`. `promiseClientFor(compiler)` adapts that compiler to
+`TscBridge`. The transport owns framing, IDs, resource acquisition and shutdown.
+
+Both clients expose `transpile`, `checkProject`, `exportedCodeUnions` and `close`.
+The Effect client's `close` is an Effect value; the Promise client's `close()` is
+a method.
+
+## Content-mapper messages
+
+Mappers exchange JSON-RPC 2.0 messages framed with `Content-Length` headers. The
+request methods are `initialize`, `openProject`, `closeProject`, `transform` and
+`verify`. `decodeMapperMessage(text)` decodes a JSON message body;
+`encodeMapperResponse(response)` produces a JSON response body. Framing is the
+transport's responsibility.
+
+Exported codecs include `MapperRequestSchema`, `MapperResponseSchema`,
+`MapperResultSchema`, `MapperTransformParamsSchema` and `MapperVerifyParamsSchema`.
+Their associated types describe parameters, results, source spans and mapping
+segments. An in-process mapper implements `MapperModule.connect(send)` and returns
+a `MapperConnection` with `receive(chunk)`; chunks are `Uint8Array` values.
+
+A mapper's `tscBridge.verify` package metadata enables diagnostic verification.
+The bridge sends `configFileName`, optional mapper `options` and a `files` array.
+Each file contains `fileName`, original `content`, generated `virtualText` and
+`diagnostics` with `start`, `length` and `code`. The result has one array per file
+and one entry per diagnostic: an original-source `{ start, length }` span, or
+`null` to discard that diagnostic.
+
+## Positions
+
+Compiler diagnostics use zero-based UTF-8 byte offsets. Mapper transformations
+and verification messages use UTF-16 code units. Convert offsets at the relevant
+boundary when implementing a mapper or presenting source locations.
+
+## License
+
+MIT. Source and the Go-side compiler handler:
+[Typebridge](https://github.com/kjanat/typebridge).

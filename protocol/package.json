@@ -21,6 +21,9 @@
 		"test": "go test -race -count=1 ./...",
 		"typecheck": "run typescript --noEmit -p tsconfig.json"
 	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
 	"devDependencies": {
 		"tsdown": "catalog:build"
 	},

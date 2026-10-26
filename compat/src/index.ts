@@ -1,4 +1,6 @@
-import { isRecord } from '@kjanat/tsc-protocol';
+import type { Diagnostic, ParsedCommandLine } from '#schema';
+import { decodeDiagnostics, decodeParsedCommandLine } from '#schema';
+export type { Diagnostic, ParsedCommandLine } from '#schema';
 import path from 'node:path';
 import type { Node, NodeArray, SourceFile as SyntaxTree } from 'typescript/ast';
 import { ScriptKind, ScriptTarget, SyntaxKind } from 'typescript/ast';
@@ -34,28 +36,12 @@ export type { FileSystemEntries, ParseConfigHost, System } from '#sys';
 export { sys } from '#sys';
 export { ScriptKind, ScriptTarget, SyntaxKind };
 
-export interface Diagnostic {
-	readonly fileName?: string;
-	readonly start?: number;
-	readonly length?: number;
-	readonly code: number;
-	readonly category: number;
-	readonly messageText: string;
-}
-
 /** A parsed file and the syntax errors the parser reported for it. */
 export interface SourceFile extends SyntaxTree {
 	readonly parseDiagnostics: readonly Diagnostic[];
 }
 
 export type CompilerOptions = Readonly<Record<string, unknown>>;
-
-export interface ParsedCommandLine {
-	readonly options: CompilerOptions;
-	readonly fileNames: readonly string[];
-	readonly raw?: unknown;
-	readonly errors: readonly Diagnostic[];
-}
 
 export interface TextChangeRange {
 	readonly span: { readonly start: number; readonly length: number };
@@ -69,61 +55,13 @@ export interface IScriptSnapshot {
 	dispose?(): void;
 }
 
-function isOptionalNumber(value: unknown): boolean {
-	return value === undefined || typeof value === 'number';
-}
-
-function isDiagnostic(value: unknown): value is Diagnostic {
-	return (
-		isRecord(value) &&
-		(value.fileName === undefined || typeof value.fileName === 'string') &&
-		isOptionalNumber(value.start) &&
-		isOptionalNumber(value.length) &&
-		typeof value.code === 'number' &&
-		typeof value.category === 'number' &&
-		typeof value.messageText === 'string'
-	);
-}
-
-function isDiagnostics(value: unknown): value is Diagnostic[] {
-	return Array.isArray(value) && value.every(isDiagnostic);
-}
-
-function isStrings(value: unknown): value is string[] {
-	return Array.isArray(value) && value.every((item) => typeof item === 'string');
-}
-
-function isParsedCommandLine(value: unknown): value is ParsedCommandLine {
-	return (
-		isRecord(value) &&
-		isRecord(value.options) &&
-		isStrings(value.fileNames) &&
-		isDiagnostics(value.errors)
-	);
-}
-
-function field(result: Record<string, unknown>, key: string): string {
-	const value = result[key];
-	if (typeof value !== 'string')
-		throw new Error(`The compat WebAssembly module returned no ${key}`);
-	return value;
-}
-
-function diagnosticsOf(text: string): Diagnostic[] {
-	const value: unknown = JSON.parse(text);
-	if (!isDiagnostics(value)) throw new Error(`Malformed diagnostics: ${text}`);
-	return value;
-}
-
 const unreadable = new WeakMap<SourceFile, Diagnostic>();
 
 function parse(fileName: string, text: string, scriptKind: ScriptKind): SourceFile {
 	const result = unwrap(compiler.parse(fileName, encodeWtf8(text), scriptKind, process.cwd()));
 	const { data } = result;
-	if (!(data instanceof Uint8Array))
-		throw new Error('The compat WebAssembly module returned no data');
 	return Object.assign(decodeSourceFile(data), {
-		parseDiagnostics: diagnosticsOf(field(result, 'diagnostics')),
+		parseDiagnostics: decodeDiagnostics(result.diagnostics),
 	});
 }
 
@@ -201,8 +139,8 @@ export function convertToObject(sourceFile: SourceFile, errors: Diagnostic[]): u
 	const result = unwrap(
 		compiler.toObject(sourceFile.fileName, encodeWtf8(sourceFile.text), process.cwd()),
 	);
-	errors.push(...diagnosticsOf(field(result, 'diagnostics')));
-	return JSON.parse(field(result, 'value'));
+	errors.push(...decodeDiagnostics(result.diagnostics));
+	return JSON.parse(result.value);
 }
 
 function bridge(host: ParseConfigHost): object {
@@ -247,9 +185,7 @@ export function parseJsonSourceFileConfigFileContent(
 			bridge(host),
 		),
 	);
-	const value: unknown = JSON.parse(field(result, 'value'));
-	if (!isParsedCommandLine(value))
-		throw new Error('The compat WebAssembly module returned a malformed configuration');
+	const value = decodeParsedCommandLine(result.value);
 	const failure = unreadable.get(sourceFile);
 	return failure === undefined ? value : { ...value, errors: [failure, ...value.errors] };
 }
