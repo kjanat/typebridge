@@ -28,7 +28,7 @@
 	},
 	"dependencies": {
 		"effect": "catalog:",
-		"typescript": "7.1.0-dev.20261024.1"
+		"typescript": "7.1.0-dev.20261026.1"
 	},
 	"devDependencies": {
 		"tsdown": "catalog:build"
