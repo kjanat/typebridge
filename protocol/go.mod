@@ -4,7 +4,7 @@ go 1.27
 
 toolchain go1.27.3
 
-require github.com/microsoft/TypeScript/tsc v0.0.0-20261023193505-8d9b6da99ea7
+require github.com/microsoft/TypeScript/tsc v0.0.0-20261026160824-49e69830214c
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
