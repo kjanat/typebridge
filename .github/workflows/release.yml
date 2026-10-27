@@ -1,132 +1,60 @@
 name: Release
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag pointing to the tested commit
-        required: true
-        type: string
-      build-run-id:
-        description: Successful Test run that staged the package archives
+        description: Existing release tag
         required: true
         type: string
 permissions: { contents: read, actions: read }
 concurrency:
-  group: release-${{ inputs.tag }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 defaults: { run: { shell: "bash -euo pipefail {0}" } }
 env:
   GH_TOKEN: ${{ github.token }}
   GH_REPO: ${{ github.repository }}
 jobs:
-  validate:
-    name: Validate release source
+  draft:
+    name: Prepare GitHub draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: { contents: write }
     outputs:
-      release: ${{ steps.release.outputs.release }}
+      release: ${{ steps.draft.outputs.release }}
     env:
-      TAG: ${{ inputs.tag }}
-      BUILD_RUN_ID: ${{ inputs.build-run-id }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Validate inputs
-        run: |
-          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
-          [[ "${BUILD_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+      - name: Validate release tag
+        run: '[[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Match the tag to the successful master build
-        id: release
-        run: |
-          sha=$(git rev-parse HEAD)
-          git merge-base --is-ancestor "${sha}" origin/master
-          gh run view "${BUILD_RUN_ID}" --json conclusion,event,headSha,headBranch,workflowName |
-            jq -e --arg sha "${sha}" '.conclusion == "success" and .event == "push" and .headBranch == "master" and .workflowName == "Test" and .headSha == $sha'
-          jq -e '.workspaces | length > 0 and all(.[]; test("^[a-z][a-z0-9-]*$"))' package.json
-          release=$(jq -cn --arg tag "${TAG}" --arg version "${TAG#v}" --arg sha "${sha}" --argjson run "${BUILD_RUN_ID}" --slurpfile project package.json \
-            '{tag: $tag, version: $version, sha: $sha, run: $run, packages: $project[0].workspaces, prerelease: ($version | split("+")[0] | contains("-"))}')
-          printf 'release=%s\n' "${release}" >> "${GITHUB_OUTPUT}"
-  verify:
-    name: Verify published ${{ matrix.package }}
-    needs: [validate]
-    strategy:
-      fail-fast: false
-      matrix:
-        package: ${{ fromJSON(needs.validate.outputs.release).packages }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      PACKAGE: ${{ matrix.package }}
-      VERSION: ${{ fromJSON(needs.validate.outputs.release).version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: refs/tags/${{ inputs.tag }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with: { node-version-file: .node-version, package-manager-cache: false }
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: package-${{ matrix.package }}
-          path: artifacts
-          run-id: ${{ fromJSON(needs.validate.outputs.release).run }}
-          github-token: ${{ github.token }}
-      - name: Verify the approved npm package matches the tested tarball
-        working-directory: artifacts
-        run: |
-          sha256sum -c ./*.sha256
-          name="@kjanat/tsc-${PACKAGE}"
-          tar -xOf "${PACKAGE}.tgz" package/package.json |
-            jq -e --arg name "${name}" --arg version "${VERSION}" '.name == $name and .version == $version'
-          if ! published_integrity=$(npm view "${name}@${VERSION}" dist.integrity --json --registry https://registry.npmjs.org | jq -er '[.] | flatten | select(length == 1) | .[0] | strings'); then
-            printf '::error::Approve npm staging for %s@%s before creating the release.\n' "${name}" "${VERSION}"
-            exit 1
-          fi
-          archive_integrity="sha512-$(openssl dgst -sha512 -binary "${PACKAGE}.tgz" | openssl base64 -A)"
-          if [[ "${published_integrity}" != "${archive_integrity}" ]]; then
-            printf '::error::The published npm package %s@%s differs from the tested archive.\n' "${name}" "${VERSION}"
-            exit 1
-          fi
-  release:
-    name: Publish GitHub release
-    needs: [validate, verify]
+      - name: Create draft unless it already exists
+        id: draft
+        run: bash .github/release/draft.sh prepare
+  checks:
+    needs: [draft]
+    uses: $/.github/workflows/test.yml
+    with:
+      ref: ${{ fromJSON(needs.draft.outputs.release).sha }}
+  assets:
+    name: Upload tested tarballs to draft
+    needs: [draft, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: { name: npm, deployment: false }
-    permissions: { contents: write, actions: read, id-token: write }
+    permissions: { contents: write, actions: read }
     env:
-      RELEASE: ${{ needs.validate.outputs.release }}
+      RELEASE: ${{ needs.draft.outputs.release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ fromJSON(env.RELEASE).sha }}
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: package-*
-          merge-multiple: true
-          path: artifacts
-          run-id: ${{ fromJSON(needs.validate.outputs.release).run }}
-          github-token: ${{ github.token }}
-      - name: Assemble release checksums
-        working-directory: artifacts
-        run: |
-          cat ./*.sha256 > SHA256SUMS
-          sha256sum -c SHA256SUMS
-      - name: Publish the existing tag with the tested archives
-        run: |
-          sha=$(git rev-parse HEAD)
-          expected_sha=$(jq -er '.sha' <<< "${RELEASE}")
-          [[ "${sha}" == "${expected_sha}" ]]
-          tag=$(jq -er '.tag' <<< "${RELEASE}")
-          prerelease=$(jq -r '.prerelease' <<< "${RELEASE}")
-          args=("${tag}" artifacts/*.tgz artifacts/SHA256SUMS --verify-tag --generate-notes --title "${tag}")
-          if [[ "${prerelease}" == true ]]; then
-            args+=(--prerelease --latest=false)
-          else
-            args+=(--latest)
-          fi
-          gh release create "${args[@]}"
+        with: { pattern: "package-*", merge-multiple: true, path: artifacts }
+      - run: bash .github/release/draft.sh attach

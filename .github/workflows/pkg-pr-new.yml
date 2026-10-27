@@ -1,21 +1,31 @@
 name: pkg.pr.new
-on: { workflow_call: {} }
-permissions: { contents: read }
+on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+permissions: { contents: read, actions: read }
 defaults: { run: { shell: "bash -euo pipefail {0}" } }
 jobs:
   preview:
-    name: Publish preview packages
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with: { persist-credentials: false }
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version: latest }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { pattern: "package-*", merge-multiple: true, path: artifacts }
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
       - name: Verify archive checksums
         working-directory: artifacts
         run: sha256sum -c ./*.sha256
       - name: Publish prebuilt archives and AST explorer template
-        run: bun run publish:preview
+        run: bunx --bun pkg-pr-new@0.0.92 publish --packageManager=bun --template './examples/tsc-compat' './artifacts/*.tgz'
