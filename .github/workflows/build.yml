@@ -5,6 +5,18 @@ on:
       ref: { type: string, default: "" }
 permissions: { contents: read }
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs: { ref: "${{ steps.source.outputs.ref }}" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { ref: "${{ inputs.ref || github.sha }}", persist-credentials: false }
+      - id: source
+        run: |
+          ref=$(git rev-parse HEAD)
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+        shell: bash
   protocol:
     uses: $/.github/workflows/package.yml
     with: { package: protocol, ref: "${{ inputs.ref }}" }
@@ -32,3 +44,19 @@ jobs:
       ref: ${{ inputs.ref }}
       package: vue-mapper
       dependencies: ${{ join(needs.*.outputs.artifact-id, ',') }}
+  ready:
+    name: Build artifacts ready
+    needs: [source, protocol, compat, bridge, wasm, vue-mapper]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SOURCE_REF: ${{ needs.source.outputs.ref }}
+    steps:
+      - name: Record the completed builds
+        run: jq -cn --arg ref "${SOURCE_REF}" --argjson run "${GITHUB_RUN_ID}" '{ref:$ref,run:$run}' > build.json
+        shell: bash
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-ready
+          path: build.json
+          if-no-files-found: error

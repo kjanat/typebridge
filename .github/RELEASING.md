@@ -6,10 +6,16 @@ Build produces one tarball per package with `bun pm pack --ignore-scripts`.
 Package jobs download their dependencies by artifact ID. Test consumes those
 builds and runs all workspace typechecks, unit and lifecycle tests, WASM/native
 parity, Go race tests, Go vet, lint and formatting. Separate consumers install the
-archives under Node and Bun.
+archives under Node and Bun. Formatting runs immediately in its own job,
+without waiting for package builds or tests.
 
-After successful Test runs on PRs and master, pkg.pr.new publishes the existing
-archives and the AST explorer template. The [pkg.pr.new GitHub app](https://github.com/apps/pkg-pr-new)
+The pkg.pr.new workflow starts automatically when a PR or master Test run starts.
+It waits for the completed-build artifact, then publishes the archives and the
+AST explorer template. Publication runs
+alongside the regular tests. The preview workflow then runs the same test suite
+and Node/Bun consumers against tarballs downloaded from pkg.pr.new, checking
+their hashes against the original build artifacts. A preview service
+failure does not block the regular tests or change their result. The [pkg.pr.new GitHub app](https://github.com/apps/pkg-pr-new)
 needs access to this repository. Development pushes do not publish to npm.
 
 ## Prepare a draft
