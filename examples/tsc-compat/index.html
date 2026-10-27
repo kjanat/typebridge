@@ -173,6 +173,31 @@ let broken = ;
 			const status = document.querySelector('#status');
 			const tree = document.querySelector('#tree');
 			const diagnostics = document.querySelector('#diagnostics');
+			const examples = new Map([
+				['ts', source.value],
+				[
+					'tsx',
+					`interface User {
+  name: string;
+  roles: readonly string[];
+}
+
+export function Profile({ user }: { user: User }) {
+  return (
+    <article className="profile">
+      <h1>{user.name}</h1>
+      <ul>
+        {user.roles.map((role) => <li key={role}>{role}</li>)}
+      </ul>
+    </article>
+  );
+}
+
+const preview = <Profile user={{ name: 'Ada', roles: ['admin', 'editor'] }} />;
+`,
+				],
+			]);
+			let activeFile = file.value;
 			let picked;
 			let pending = 0;
 
@@ -249,7 +274,13 @@ let broken = ;
 				clearTimeout(timer);
 				timer = setTimeout(update, 120);
 			});
-			file.addEventListener('change', update);
+			file.addEventListener('change', () => {
+				examples.set(activeFile, source.value);
+				activeFile = file.value;
+				source.value = examples.get(activeFile) ?? '';
+				clearTimeout(timer);
+				update();
+			});
 			update();
 		</script>
 	</body>

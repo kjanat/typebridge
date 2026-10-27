@@ -4,6 +4,8 @@ A small web page for exploring the syntax tree that [`@kjanat/tsc-compat`](../..
 
 Type TypeScript or TSX on the left, and the tree and the parse diagnostics update on the right. Clicking a node or a diagnostic selects its source range.
 
+The file selector loads a TypeScript example with a parse error or a TSX component with JSX. Each example keeps its edits when you switch files.
+
 ```sh
 bun install --frozen-lockfile # from the repository root
 bun run --cwd examples/tsc-compat start
