@@ -1,4 +1,106 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["config:recommended"]
+	"extends": ["config:recommended"],
+	"packageRules": [
+		{
+			"matchPackageNames": [
+				"dprint",
+				"@dprint/**",
+				"dprint-plugin-*",
+				"@biomejs/biome",
+				"tombi",
+				"kjanat/dprint-plugin-*"
+			],
+			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+			"groupName": "formatting tools"
+		},
+		{
+			"matchPackageNames": [
+				"tsdown",
+				"rolldown-plugin-wasm",
+				"publint",
+				"@arethetypeswrong/core",
+				"unplugin-unused"
+			],
+			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+			"groupName": "build tools"
+		},
+		{
+			"matchPackageNames": ["@vue/language-core", "@volar/typescript"],
+			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+			"groupName": "Vue compiler integration"
+		},
+		{
+			"description": "The root dreamcli alias and the @kjanat/dreamcli catalog entry declare one package through two managers, so update both in one PR.",
+			"matchPackageNames": ["@kjanat/dreamcli", "dreamcli"],
+			"groupName": "dreamcli"
+		},
+		{
+			"matchManagers": ["gomod"],
+			"matchDepTypes": ["toolchain"],
+			"groupName": "Go toolchain"
+		},
+		{
+			"matchManagers": ["bun", "npm", "nodenv"],
+			"matchDepNames": ["node"],
+			"groupName": "Node.js"
+		},
+		{
+			"matchPackageNames": ["typescript", "github.com/microsoft/TypeScript/tsc"],
+			"groupName": "TypeScript compiler",
+			"groupSlug": "typescript-compiler",
+			"separateMajorMinor": false,
+			"enabled": true
+		},
+		{
+			"matchPackageNames": ["typescript"],
+			"allowedVersions": ">=7 <8"
+		},
+		{
+			"description": "This module is supplied by the local Go workspace replacement.",
+			"matchManagers": ["gomod"],
+			"matchPackageNames": ["github.com/microsoft/TypeScript/tsc/protocol"],
+			"enabled": false
+		},
+		{
+			"description": "The exec plugin is managed manually.",
+			"matchPackageNames": ["@dprint/exec"],
+			"enabled": false
+		}
+	],
+	"customManagers": [
+		{
+			"customType": "regex",
+			"managerFilePatterns": ["/^\\.dprint\\.json$/"],
+			"matchStrings": [
+				"https://plugins\\.dprint\\.dev/(?<owner>kjanat)/(?<plugin>shfmt|sortpackagejson|svg)-v?(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.wasm"
+			],
+			"depNameTemplate": "{{owner}}/dprint-plugin-{{plugin}}",
+			"datasourceTemplate": "github-releases",
+			"extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+		},
+		{
+			"customType": "regex",
+			"description": "Extract the top-level Bun catalogs that the built-in manager does not currently read.",
+			"managerFilePatterns": ["/^package\\.json$/"],
+			"matchStringsStrategy": "recursive",
+			"matchStrings": [
+				"\"catalogs?\"\\s*:\\s*\\{[\\s\\S]*?\\n\\t\\}",
+				"\"(?<depName>[^\"\\n]+)\"\\s*:\\s*\"(?:npm:(?<packageName>@?[^\"\\n]+?)@)?(?<currentValue>[^\"\\n]+)\""
+			],
+			"datasourceTemplate": "npm",
+			"versioningTemplate": "npm"
+		}
+	],
+	"github-actions": {
+		"enabled": false
+	},
+	"schedule": ["before 6am on monday"],
+	"timezone": "Europe/Amsterdam",
+	"minimumReleaseAge": "7 days",
+	"updateNotScheduled": false,
+	"lockFileMaintenance": {
+		"enabled": true,
+		"schedule": ["before 6am on monday"]
+	}
 }
