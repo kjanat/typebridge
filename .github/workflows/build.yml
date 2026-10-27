@@ -1,0 +1,34 @@
+name: Build
+on:
+  workflow_call:
+    inputs:
+      ref: { type: string, default: "" }
+permissions: { contents: read }
+jobs:
+  protocol:
+    uses: $/.github/workflows/package.yml
+    with: { package: protocol, ref: "${{ inputs.ref }}" }
+  compat:
+    uses: $/.github/workflows/package.yml
+    with: { package: compat, ref: "${{ inputs.ref }}" }
+  bridge:
+    needs: [protocol]
+    uses: $/.github/workflows/package.yml
+    with:
+      ref: ${{ inputs.ref }}
+      package: bridge
+      dependencies: ${{ join(needs.*.outputs.artifact-id, ',') }}
+  wasm:
+    needs: [protocol, bridge]
+    uses: $/.github/workflows/package.yml
+    with:
+      ref: ${{ inputs.ref }}
+      package: wasm
+      dependencies: ${{ join(needs.*.outputs.artifact-id, ',') }}
+  vue-mapper:
+    needs: [protocol, compat, bridge, wasm]
+    uses: $/.github/workflows/package.yml
+    with:
+      ref: ${{ inputs.ref }}
+      package: vue-mapper
+      dependencies: ${{ join(needs.*.outputs.artifact-id, ',') }}
