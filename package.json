@@ -57,7 +57,7 @@
 		"ts": {
 			"@types/bun": "^1.4.2",
 			"@types/node": "^26.6.3",
-			"@volar/typescript": "2.4.28",
+			"@volar/typescript": "2.4.30",
 			"@vue/language-core": "^3.3.11"
 		},
 		"ts7": {
